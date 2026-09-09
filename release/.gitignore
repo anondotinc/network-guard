@@ -1,0 +1,10 @@
+/out/
+/staging/
+*.pem
+*.key
+*.p12
+*.apk
+*.aab
+*.zip
+*.dmg
+*.sig

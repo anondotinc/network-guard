@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Source, tests and universal builds
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Source hygiene and documentation links
+        run: node scripts/check-source.mjs
+      - name: Release-tooling and build-contract tests
+        run: node --test release/tests/*.test.mjs scripts/*.test.mjs
+      - name: Native and installer tests (debug)
+        run: node scripts/test-native.mjs
+      - name: Native and installer tests (release)
+        run: node scripts/test-native.mjs -c release
+      - name: Universal setup builds and static wire checks
+        run: |
+          node scripts/build-setup.mjs --channel production
+          node scripts/test-wire.mjs --channel production
+          node scripts/build-setup.mjs --channel development
+          node scripts/test-wire.mjs --channel development
+      - name: Verify tracked source is unchanged
+        run: git diff --exit-code
