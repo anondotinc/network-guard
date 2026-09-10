@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.1 — build 4 — signing candidate (2026-09-09)
+
+- Fresh candidate for Developer ID signing and Apple notarization verification.
+- No changes to VPN operations, extension enrollment or traffic-blocking limits.
+
+Public distribution remains gated on verified artifacts and clean-Mac acceptance.
+This source entry does not by itself attest to signing or notarization of a build.
+
 ## 0.1.1 — build 3 — pre-launch review (2026-09-08)
 
 - Shared version/build metadata across native discovery, Setup and test packaging.

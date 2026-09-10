@@ -4,7 +4,7 @@ import { buildVersion, parseBuildVersion } from './version.mjs';
 
 const source = (version, build) => `    public static let version = "${version}"\n    public static let build = ${build}\n`;
 test('one source binds discovery and package versions', () => {
-  assert.deepEqual(buildVersion, { version: '0.1.1', build: 3 });
+  assert.deepEqual(buildVersion, { version: '0.1.1', build: 4 });
   assert.deepEqual(parseBuildVersion(source('0.1.10', 12)), { version: '0.1.10', build: 12 });
 });
 test('ambiguous or noncanonical build metadata fails closed', () => {

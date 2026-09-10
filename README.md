@@ -4,7 +4,7 @@ A minimal, local bridge between the Anon wallet extension and your existing VPN
 app. The wallet can check the VPN's reported connection state and, with your
 separate consent, request a connection using your existing provider settings.
 
-**Development preview · 0.1.1, build 3 · Chrome on macOS 13+**
+**Development preview · 0.1.1, build 4 · Chrome on macOS 13+**
 
 Network Guard is not a VPN or a wallet. It holds no wallet keys or account data,
 has no HTTP server, background daemon, telemetry or automatic updater, and
