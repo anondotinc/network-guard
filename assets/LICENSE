@@ -1,0 +1,129 @@
+Business Source License 1.1 (AHLOOP LLC; rolling 5-year Change Date)
+
+This license is based on the Business Source License 1.1 form.
+Reference: `https://mariadb.com/bsl11/`
+
+Note: The "Version", "Version Date", and "Change Date" fields below are
+updated automatically during extension releases.
+
+-----------------------------------------------------------------------------
+
+Parameters
+
+Licensor:             AHLOOP LLC
+
+Licensed Work:        anon (this repository), including all source code,
+                      configuration, assets, and documentation contained herein
+                      (the "Licensed Work").
+                      The Licensed Work is (c) 2025-2026 AHLOOP LLC
+Additional Use Grant: None
+
+Version:              0.6.6
+
+Version Date:         2026-06-13
+
+Change Date:          2031-06-13 (the fifth anniversary of the Version Date)
+
+Change License:       GNU General Public License v2.0 or later
+
+-----------------------------------------------------------------------------
+
+Terms
+
+The Licensor hereby grants you the right to copy, modify, create derivative
+works, redistribute, and make non-production use of the Licensed Work. The
+Licensor may make an Additional Use Grant, above, permitting limited
+production use.
+
+Effective on the Change Date, the Licensor hereby grants you rights under the
+terms of the Change License, and the rights granted in the paragraph above
+terminate.
+
+If your use of the Licensed Work does not comply with the requirements
+currently in effect as described in this License, you must purchase a
+commercial license from the Licensor, its affiliated entities, or authorized
+resellers, or you must refrain from using the Licensed Work.
+
+All copies of the original and modified Licensed Work, and derivative works
+of the Licensed Work, are subject to this License. This License applies
+separately for each version of the Licensed Work and the Change Date may vary
+for each version of the Licensed Work released by Licensor.
+
+You must conspicuously display this License on each original or modified copy
+of the Licensed Work. If you receive the Licensed Work in original or
+modified form from a third party, the terms and conditions set forth in this
+License apply to your use of that work.
+
+Any use of the Licensed Work in violation of this License will automatically
+terminate your rights under this License for the current and all other
+versions of the Licensed Work.
+
+This License does not grant you any right in any trademark or logo of
+Licensor or its affiliates (provided that you may use a trademark or logo of
+Licensor as expressly required by this License).
+
+-----------------------------------------------------------------------------
+
+Clarifications (Protective Definitions)
+
+For purposes of this License:
+
+1. "Production Use" includes (without limitation) any use of the Licensed Work:
+   (a) in a production, staging, or other environment that processes or serves
+       real users, customers, or production data;
+   (b) to provide a hosted service, managed service, SaaS offering, API, or
+       other service made available to any third party (whether paid or free);
+   (c) as part of, bundled with, embedded in, or materially enabling a product
+       or service that is offered to any third party;
+   (d) to support internal business operations beyond evaluation, development,
+       testing, security research, or demonstration.
+
+2. "Non-production Use" means any use that is not Production Use.
+
+3. "Competitive Offering" means any product or service that (in whole or in
+   substantial part) provides the same or similar functionality as the Licensed
+   Work, or is intended to substitute for the Licensed Work.
+
+Use Limitation (in addition to the restriction on Production Use):
+
+You may not use the Licensed Work (including derivatives) to create, offer, or
+provide a Competitive Offering prior to the Change Date, even if that use would
+otherwise be considered Non-production Use.
+
+-----------------------------------------------------------------------------
+
+Contributions
+
+By submitting a contribution to the Licensed Work — whether in the form of a
+pull request, commit, patch, code review suggestion, or any other form — the
+contributor irrevocably assigns to AHLOOP LLC all right, title, and interest
+in and to that contribution, including all intellectual property rights
+(copyright, patent, trade secret, and any other rights) therein, worldwide and
+in perpetuity.
+
+Contributions do not confer any ownership interest, equity, or claim in the
+Licensed Work, the project, or any associated intellectual property of
+AHLOOP LLC. Contributors have no right to revenue, profits, or decision-making
+authority by virtue of their contributions.
+
+By making a commit or contribution to the Licensed Work, the contributor
+acknowledges that they have read, understood, and agreed to the terms of this
+License, including this Contributions section.
+
+-----------------------------------------------------------------------------
+
+Disclaimer of Warranty
+
+TO THE EXTENT PERMITTED BY APPLICABLE LAW, THE LICENSED WORK IS PROVIDED ON
+AN "AS IS" BASIS. LICENSOR HEREBY DISCLAIMS ALL WARRANTIES AND CONDITIONS,
+EXPRESS OR IMPLIED, INCLUDING (WITHOUT LIMITATION) WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, NON-INFRINGEMENT, AND
+TITLE.
+
+-----------------------------------------------------------------------------
+
+Notice
+
+This document (the "License") is not an Open Source license. However, the
+Licensed Work will eventually be made available under an Open Source License,
+as stated in this License.

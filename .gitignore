@@ -1,0 +1,19 @@
+.build/
+dist/
+.DS_Store
+*.xcuserstate
+*.pem
+*.p12
+*.key
+.env*
+# Source-only repository: never stage distribution artifacts or credentials.
+*.apk
+*.aab
+*.zip
+*.dmg
+*.pkg
+*.app/
+*.jks
+*.keystore
+*.mobileprovision
+*.log

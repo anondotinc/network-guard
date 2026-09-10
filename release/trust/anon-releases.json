@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "purpose": "anon-application-release-metadata",
+  "catalogSchemaVersion": 1,
+  "keys": [
+    {
+      "id": "anon-releases-2026-09",
+      "algorithm": "Ed25519",
+      "status": "active",
+      "encoding": "spki-pem",
+      "spkiSha256": "2f9d96735d7e9640c24c9d46b69cb9a2ad4a54da0b7d61e3694105bd0a00745d",
+      "publicKeyUrl": "https://anon.inc/.well-known/anon-release-metadata.pub"
+    }
+  ],
+  "verificationGuide": "https://docs.anon.inc/security/release-verification",
+  "source": "https://github.com/anondotinc/network-guard"
+}

@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://anon.inc/contracts/releases/v1",
+  "title": "Anon release catalog v1",
+  "description": "Structural contract. catalog.mjs additionally enforces immutable path equality, distinct identities, actual UTC timestamps, product-specific signing, and desktop unavailability. Validation alone does not authenticate a release: verify the detached signature first.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "releases"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "releases": { "type": "array", "maxItems": 500, "items": { "$ref": "#/$defs/release" } }
+  },
+  "$defs": {
+    "token": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$", "not": { "pattern": "\\.\\." } },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "release": {
+      "type": "object", "additionalProperties": false,
+      "required": ["product", "version", "buildId", "releasedAt", "channel", "status", "notes", "artifacts"],
+      "properties": {
+        "product": { "enum": ["android", "network-helper", "desktop"] },
+        "version": { "$ref": "#/$defs/token" },
+        "buildId": { "$ref": "#/$defs/token" },
+        "releasedAt": { "type": "string", "format": "date-time", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{3})?Z$" },
+        "channel": { "enum": ["test", "stable"] },
+        "status": { "enum": ["unreleased", "published", "withdrawn"] },
+        "notes": { "type": "array", "maxItems": 30, "items": { "type": "string", "minLength": 1, "maxLength": 1000, "pattern": "^[^\\u0000-\\u001f\\u007f]+$" } },
+        "artifacts": { "type": "array", "maxItems": 10, "items": { "$ref": "#/$defs/artifact" } },
+        "source": {
+          "type": "object", "additionalProperties": false, "required": ["repository", "commit"],
+          "properties": {
+            "repository": { "type": "string", "pattern": "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" },
+            "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+          }
+        }
+      },
+      "allOf": [
+        { "if": { "properties": { "status": { "const": "published" } } }, "then": { "properties": { "artifacts": { "minItems": 1 } } } },
+        { "if": { "properties": { "product": { "const": "desktop" } } }, "then": { "properties": { "status": { "const": "unreleased" } } } },
+        { "if": { "properties": { "product": { "const": "android" } } }, "then": { "properties": { "artifacts": { "items": { "properties": { "platform": { "const": "android" }, "signing": { "$ref": "#/$defs/androidSigning" }, "filename": { "pattern": "\\.apk$" } } } } } }, "else": { "properties": { "artifacts": { "items": { "properties": { "platform": { "const": "macos" }, "signing": { "$ref": "#/$defs/appleSigning" }, "filename": { "pattern": "\\.zip$" } } } } } } }
+      ]
+    },
+    "artifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["platform", "architecture", "minimumOs", "filename", "bytes", "sha256", "signing", "location"],
+      "allOf": [
+        { "if": { "properties": { "platform": { "const": "macos" } } }, "then": { "properties": { "architecture": { "enum": ["universal", "arm64", "x86_64"] } } } },
+        { "if": { "properties": { "platform": { "const": "android" } } }, "then": { "properties": { "location": { "pattern": "^https://(release|downloads)\\.anon\\.inc/android/" } } } }
+      ],
+      "properties": {
+        "platform": { "enum": ["android", "macos"] },
+        "architecture": { "enum": ["universal", "arm64", "x86_64", "arm64-x86_64"] },
+        "minimumOs": { "type": "string", "minLength": 1, "maxLength": 80, "pattern": "^[^\\u0000-\\u001f\\u007f]+$" },
+        "filename": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$", "not": { "pattern": "\\.\\." } },
+        "bytes": { "type": "integer", "minimum": 1, "maximum": 536870912 },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "signing": { "oneOf": [{ "$ref": "#/$defs/androidSigning" }, { "$ref": "#/$defs/appleSigning" }] },
+        "location": { "type": "string", "pattern": "^https://((release|downloads)\\.anon\\.inc/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+|github\\.com/anondotinc/network-guard/releases/download/v[A-Za-z0-9._-]+)/[A-Za-z0-9._-]+$" }
+      }
+    },
+    "androidSigning": {
+      "type": "object", "additionalProperties": false, "required": ["kind", "certificateSha256", "packageName"],
+      "properties": { "kind": { "const": "android" }, "certificateSha256": { "$ref": "#/$defs/sha256" }, "packageName": { "const": "com.ahloop.anon" } }
+    },
+    "appleSigning": {
+      "type": "object", "additionalProperties": false, "required": ["kind", "teamId", "identity", "notarized"],
+      "properties": { "kind": { "const": "apple-developer-id" }, "teamId": { "type": "string", "pattern": "^[A-Z0-9]{10}$" }, "identity": { "type": "string", "minLength": 1, "maxLength": 200, "pattern": "^Developer ID Application: [^\\u0000-\\u001f\\u007f]+$" }, "notarized": { "const": true } }
+    }
+  }
+}
