@@ -107,7 +107,10 @@ export function createR2Transport({ accountId, bucket, accessKeyId, secretAccess
     headers.authorization = `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${scope}, SignedHeaders=${names.join(';')}, Signature=${createHmac('sha256', keyBytes).update(toSign).digest('hex')}`;
     let response;
     try {
-      response = await fetchImpl(`${endpoint}${pathname}`, { method, headers, ...(method === 'PUT' ? { body: file ? createReadStream(file) : bytes, duplex: 'half' } : {}), redirect: 'manual', signal: AbortSignal.timeout(60_000) });
+      // Unsigned transport-only header: a compressed response carries a weak
+      // ETag, which cannot serve as a compare-and-swap validator on activation.
+      const wire = method === 'PUT' ? headers : { ...headers, 'accept-encoding': 'identity' };
+      response = await fetchImpl(`${endpoint}${pathname}`, { method, headers: wire, ...(method === 'PUT' ? { body: file ? createReadStream(file) : bytes, duplex: 'half' } : {}), redirect: 'manual', signal: AbortSignal.timeout(60_000) });
     } catch { throw new Error('R2 request failed or timed out; activation was not confirmed. Inspect with a fresh dry run before retrying.'); }
     return response;
   }

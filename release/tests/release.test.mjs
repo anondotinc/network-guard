@@ -389,6 +389,31 @@ test('R2 transport is fixed-host, scoped and conditional with no broad operation
   await assert.rejects(transport.put('../unsafe', { bytes: Buffer.from('a') }), /Unsafe/);
   await assert.rejects(transport.put('catalog/v1.json', { bytes: Buffer.from('a') }, {}), /Every PUT/);
   assert.deepEqual(Object.keys(transport).sort(), ['get', 'head', 'put', 'verify']);
+  // A transformed (compressed) response carries a weak ETag, which cannot act as
+  // the compare-and-swap validator when an existing catalog is replaced.
+  calls.length = 0;
+  await transport.get('catalog/v1.json');
+  await transport.head('catalog/v1.json');
+  for (const [, request] of calls) {
+    assert.equal(request.headers['accept-encoding'], 'identity');
+    assert.doesNotMatch(request.headers.authorization, /SignedHeaders=.*accept-encoding/);
+  }
+  assert.equal(calls[0][1].headers['accept-encoding'], 'identity');
+});
+
+test('activation refuses a weak ETag instead of overwriting an unverified catalog', async (t) => {
+  const s = await staged(t);
+  const objects = new Map([['catalog/v1.json', { bytes: Buffer.from('{}') }]]);
+  const weak = {
+    async get() { return { bytes: objects.get('catalog/v1.json').bytes, etag: 'W/"transformed"' }; },
+    async head() { return null; },
+    async put() { throw new Error('activation must not be attempted'); },
+    async verify() {},
+  };
+  await assert.rejects(
+    publishVerified({ ...s, sums: checksumText(s.catalog) }, weak, async () => {}),
+    /usable ETag/
+  );
 });
 test('CLI offline verification and default publish dry run run with no credentials', async (t) => {
   const s = await staged(t);

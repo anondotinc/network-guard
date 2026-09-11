@@ -14,6 +14,10 @@
   cannot silently remove release history or reactivate withdrawn downloads.
 - Use `downloads.anon.inc` for new Android artifacts while preserving previously
   signed legacy URLs. No VPN operation, native protocol or installer change.
+- Read R2 metadata with `accept-encoding: identity`. A compressed response
+  carries a weak ETag, which cannot serve as the compare-and-swap validator when
+  an existing catalog is replaced; activation refused rather than overwriting.
+  Only the first-ever publication, which finds no active catalog, avoided this.
 
 ## 0.1.1 — build 4 — signing candidate (2026-09-09)
 
