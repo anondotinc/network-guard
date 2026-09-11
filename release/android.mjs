@@ -16,8 +16,10 @@ export function inspectApkOutput(badging, verification, expected) {
   invariant(packageInfo[2] === expected.buildId && packageInfo[3] === expected.version, 'APK version/build does not match the explicitly selected release');
   invariant(/^\d+$/.test(packageInfo[2]), 'APK versionCode must be numeric');
   invariant(!/^application-debuggable/m.test(badging), 'Debuggable APKs cannot be released');
-  const minSdk = badging.match(/^sdkVersion:'(\d+)'/m)?.[1];
-  invariant(minSdk && Number(minSdk) >= 1, 'APK minimum SDK is missing');
+  // aapt and newer aapt2 builds use different labels for the same manifest field.
+  const minimums = [...badging.matchAll(/^(?:minSdkVersion|sdkVersion):'([^']*)'\s*$/gm)].map((match) => match[1]);
+  const minSdk = minimums[0];
+  invariant(minimums.length > 0 && new Set(minimums).size === 1 && /^\d+$/.test(minSdk) && Number.isSafeInteger(Number(minSdk)) && Number(minSdk) >= 1, 'APK minimum SDK is missing, invalid or ambiguous');
   const abiLine = badging.match(/^native-code:(.*)$/m)?.[1];
   const abis = abiLine ? [...abiLine.matchAll(/'([^']+)'/g)].map((match) => match[1]).sort() : [];
   const known = ['arm64-v8a', 'armeabi-v7a', 'x86', 'x86_64'];

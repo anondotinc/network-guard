@@ -139,6 +139,20 @@ test('APK metadata requires expected package, signer and explicit version', () =
   assert.throws(() => inspectApkOutput(`${badging}\napplication-debuggable\n`, verification, { version: '0.0.0-test', buildId: '1', signer: TEST_SIGNER }), /Debuggable/);
   assert.throws(() => inspectApkOutput(badging, verification.replace('Fixture Only', 'Android Debug'), { version: '0.0.0-test', buildId: '1', signer: TEST_SIGNER }), /debug/);
 });
+test('APK minimum SDK accepts aapt and aapt2 field names without ambiguous values', () => {
+  const expected = { version: '0.0.0-test', buildId: '1', signer: TEST_SIGNER };
+  const modern = badging.replace("sdkVersion:'28'", "minSdkVersion:'28'");
+  for (const output of [badging, modern, `${modern}sdkVersion:'28'\n`]) {
+    assert.equal(inspectApkOutput(output, verification, expected).minimumOs, 'Android API 28+');
+  }
+  for (const output of [
+    `${modern}sdkVersion:'24'\n`,
+    `${modern}minSdkVersion:'24'\n`,
+    modern.replace("minSdkVersion:'28'", "minSdkVersion:'0'"),
+    modern.replace("minSdkVersion:'28'", "minSdkVersion:'preview'"),
+    modern.replace("minSdkVersion:'28'", ''),
+  ]) assert.throws(() => inspectApkOutput(output, verification, expected), /minimum SDK/);
+});
 test('APK failed signatures, multiple signers and ambiguous ABI sets are rejected', () => {
   const expected = { version: '0.0.0-test', buildId: '1', signer: TEST_SIGNER };
   assert.throws(() => inspectApkOutput(badging, verification.replace('Verifies', 'DOES NOT VERIFY'), expected), /valid APK/);
