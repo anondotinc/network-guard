@@ -33,7 +33,7 @@ final class ProviderRegistryTests: XCTestCase {
         let adapters = Dictionary(uniqueKeysWithValues: VPNProvider.allCases.map { ($0, FakeVPNAdapter($0)) })
         let registry = ProviderRegistry(enabled: true) { adapters[$0]! }
         for provider in VPNProvider.allCases {
-            let result = registry.handle(try request("probe", provider.rawValue))
+            let result = registry.handle(try request("probe", provider.rawValue, extra: ["v": provider.protocolVersion]), version: provider.protocolVersion)
             XCTAssertTrue(result.ok)
             XCTAssertEqual(result.availability?.capabilities, provider.capabilities)
             XCTAssertEqual(adapters[provider]!.reads, 0)
@@ -57,6 +57,60 @@ final class ProviderRegistryTests: XCTestCase {
         XCTAssertEqual(nord.reads, 0)
         XCTAssertEqual(nord.connects, 0)
         XCTAssertEqual(nord.opens, 1)
+    }
+    func testProtonV5IsLaunchOnlyAndKeepsLegacyV3Unchanged() throws {
+        let proton = FakeVPNAdapter(.protonvpn)
+        let registry = ProviderRegistry(enabled: true) { _ in proton }
+        func v5(_ method: String, extra: [String: Any] = [:]) throws -> ProviderResponse {
+            registry.handle(try request(method, "protonvpn", extra: ["v": 5].merging(extra) { _, new in new }), version: 5)
+        }
+        XCTAssertEqual(registry.handle(try request("openApp", "protonvpn")).error, .invalidRequest)
+        XCTAssertEqual(try v5("status").error, .unsupportedMethod)
+        XCTAssertEqual(try v5("connectSelected").error, .unsupportedMethod)
+        XCTAssertEqual(try v5("disconnect").error, .unsupportedMethod)
+        for extra: [String: Any] in [["path": "/tmp/fake.app"], ["args": ["connect"]], ["v": true], ["v": 5.5], ["v": 3]] {
+            XCTAssertFalse(try v5("openApp", extra: extra).ok)
+        }
+        XCTAssertEqual(proton.opens, 0)
+        let opened = try v5("openApp")
+        XCTAssertEqual(opened.v, 5)
+        XCTAssertTrue(opened.ok)
+        XCTAssertEqual(opened.opened, .protonvpn)
+        XCTAssertNil(opened.snapshot)
+        XCTAssertEqual(proton.reads, 0)
+        XCTAssertEqual(proton.connects, 0)
+        XCTAssertEqual(proton.opens, 1)
+        for failure in [HelperError.notInstalled, .untrustedInstallation, .providerTimeout] {
+            proton.failure = failure
+            XCTAssertEqual(try v5("probe").availability?.error, failure)
+            XCTAssertEqual(try v5("openApp").error, failure)
+        }
+        XCTAssertEqual(proton.opens, 1)
+        XCTAssertEqual(ProviderRegistry(enabled: false) { _ in proton }
+            .handle(try request("openApp", "protonvpn", extra: ["v": 5]), version: 5).error, .unsupportedMethod)
+    }
+
+    func testProtonOnlyValidatesAndOpensItsFixedAppWithABoundedCommand() throws {
+        var validations = 0
+        var calls = 0
+        let adapter = ProtonVPNAdapter(validateInstallation: { validations += 1 }, run: { args, timeout in
+            calls += 1
+            XCTAssertEqual(validations, 2) // Probe, then fresh verification before open.
+            XCTAssertEqual(args, ["-a", "/Applications/ProtonVPN.app"])
+            XCTAssertEqual(timeout, 3)
+            return Data("not returned to the extension".utf8)
+        })
+        try adapter.validate()
+        XCTAssertEqual(calls, 0)
+        XCTAssertThrowsError(try adapter.connect())
+        try adapter.openApp()
+        XCTAssertEqual(calls, 1)
+        let untrusted = ProtonVPNAdapter(validateInstallation: { throw HelperError.untrustedInstallation }, run: { _, _ in
+            XCTFail("Must not open an untrusted app"); return Data()
+        })
+        XCTAssertThrowsError(try untrusted.openApp())
+        let timeout = ProtonVPNAdapter(validateInstallation: {}, run: { _, _ in throw HelperError.providerTimeout })
+        XCTAssertThrowsError(try timeout.openApp()) { XCTAssertEqual($0 as? HelperError, .providerTimeout) }
     }
     func testConflictingOrUnknownKnownProviderDoesNotStartAnotherTunnel() throws {
         let ivpn = FakeVPNAdapter(.ivpn)

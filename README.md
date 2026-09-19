@@ -4,9 +4,16 @@ A minimal, local bridge between the Anon wallet extension and your existing VPN
 app. The wallet can check the VPN's reported connection state and, with your
 separate consent, request a connection using your existing provider settings.
 
-**Development preview · 0.1.1, build 4 · Chrome on macOS 13+**
+**0.1.4, build 7 · Chrome on macOS 13+**
 
-Network Guard is not a VPN or a wallet. It holds no wallet keys or account data,
+The signed, notarized production installer is available from the
+[Network Guard setup page](https://anon.inc/setup/network-guard).
+
+Development builds also contain an opt-in [HTTP JSON-RPC SOCKS5 transport](docs/rpc-proxy.md)
+for extension testing. It handles RPC data, separately from VPN observation/control.
+It is not wallet-wide leak protection. Production builds do not expose it.
+
+Network Guard is not a VPN or a wallet. It stores no wallet keys or account data,
 has no HTTP server, background daemon, telemetry or automatic updater, and
 installs only for your macOS user without administrator privileges.
 
@@ -27,6 +34,7 @@ See the [security boundaries](SECURITY.md) before relying on this tool.
 | Mullvad | 2026.4; macOS 14+ | Verify the pinned installation, read local status, request the selected connection. First validation target. |
 | IVPN | 3.15.15; limited validation | Read status and connect the last profile. Its daemon may refresh provider information; connecting can also enable IVPN's firewall. |
 | NordVPN | Supported website-distributed app; launch only | Open the app after a click. No connection-status verification or auto-connect. |
+| Proton VPN | 6.5.1; macOS WireGuard profile | Open the app (Guard 0.1.2+) and check its macOS tunnel state (Guard 0.1.3+). While linked and selected, Anon refreshes on wallet opening and about every 30 seconds. Connect in Proton VPN; no Anon auto-connect. |
 
 Supported versions and signing identities are deliberately narrow. An unsupported
 version needs a reviewed Guard update; do not downgrade a VPN to bypass a check.

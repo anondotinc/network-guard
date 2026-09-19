@@ -3,9 +3,10 @@ import Security
 import Darwin
 
 public enum VPNProvider: String, Codable, CaseIterable {
-    case mullvad, ivpn, nordvpn
+    case mullvad, ivpn, nordvpn, protonvpn
+    public var protocolVersion: Int { self == .protonvpn ? 5 : 3 }
     public var capabilities: [String] {
-        self == .nordvpn ? ["open-app"] : ["read-status", "connect-selected"]
+        self == .nordvpn || self == .protonvpn ? ["open-app"] : ["read-status", "connect-selected"]
     }
 }
 
@@ -24,7 +25,8 @@ public protocol VPNAdapter {
 }
 
 /// A caller can choose a registered provider, never an executable, URL or arguments.
-/// v1 and v2 remain Mullvad-only. v3 cannot silently fall back to another provider.
+/// v1/v2 remain Mullvad-only; v3 retains its original providers. Proton uses v5
+/// so old helpers reject it explicitly without any fallback provider/operation.
 public struct ProviderRegistry {
     private let adapter: (VPNProvider) -> VPNAdapter
     private let enabled: Bool
@@ -32,7 +34,7 @@ public struct ProviderRegistry {
         self.enabled = enabled
         self.adapter = adapter
     }
-    public func handle(_ data: Data) -> ProviderResponse {
+    public func handle(_ data: Data, version wireVersion: Int = 3) -> ProviderResponse {
         var id: String?
         do {
             guard data.count <= NativeFrames.maxBytes,
@@ -45,30 +47,38 @@ public struct ProviderRegistry {
                   let provider = VPNProvider(rawValue: rawProvider)
             else { throw HelperError.invalidRequest }
             id = requestID.lowercased()
+            guard provider.protocolVersion == wireVersion || (provider == .protonvpn && wireVersion == 6)
+            else { throw HelperError.invalidRequest }
             guard let version = object["v"] as? NSNumber,
-                  CFGetTypeID(version) != CFBooleanGetTypeID(), version == 3
+                  CFGetTypeID(version) != CFBooleanGetTypeID(), version.intValue == wireVersion,
+                  version.doubleValue == Double(wireVersion)
             else { throw HelperError.unsupportedVersion }
             guard enabled else { throw HelperError.unsupportedMethod }
+            // v6 adds only a read-only Proton status request. v5 stays launch-only.
+            if wireVersion == 6 {
+                guard method == "status" else { throw HelperError.unsupportedMethod }
+                return ProviderResponse(v: wireVersion, id: id, snapshot: try adapter(provider).status())
+            }
             let selected = adapter(provider)
             if method == "probe" {
                 do {
                     try selected.validate()
-                    return ProviderResponse(id: id, availability: ProviderAvailability(
+                    return ProviderResponse(v: wireVersion, id: id, availability: ProviderAvailability(
                         provider: provider, capabilities: provider.capabilities, available: true, error: nil))
                 } catch {
-                    return ProviderResponse(id: id, availability: ProviderAvailability(
+                    return ProviderResponse(v: wireVersion, id: id, availability: ProviderAvailability(
                         provider: provider, capabilities: provider.capabilities, available: false,
                         error: error as? HelperError ?? .providerUnavailable))
                 }
             }
-            if method == "status" && provider != .nordvpn {
-                return ProviderResponse(id: id, snapshot: try selected.status())
+            if method == "status" && provider.capabilities.contains("read-status") {
+                return ProviderResponse(v: wireVersion, id: id, snapshot: try selected.status())
             }
-            if method == "connectSelected" && provider != .nordvpn {
+            if method == "connectSelected" && provider.capabilities.contains("connect-selected") {
                 return try ConnectionLock.withLock {
                     let before = try selected.status()
                     if before.tunnel == "connected" || before.tunnel == "connecting" {
-                        return ProviderResponse(id: id, snapshot: before)
+                        return ProviderResponse(v: wireVersion, id: id, snapshot: before)
                     }
                     guard before.tunnel == "disconnected" else { throw HelperError.providerUnavailable }
                     // Check known alternate adapters inside the cross-process lock.
@@ -83,31 +93,31 @@ public struct ProviderRegistry {
                         guard let state = try? adapter(other).status() else { throw HelperError.providerConflict }
                         guard state.tunnel == "disconnected" else { throw HelperError.providerConflict }
                     }
-                    return ProviderResponse(id: id, snapshot: try selected.connect())
+                    return ProviderResponse(v: wireVersion, id: id, snapshot: try selected.connect())
                 }
             }
-            if method == "openApp" && provider == .nordvpn {
+            if method == "openApp" && provider.capabilities.contains("open-app") {
                 try selected.openApp()
-                return ProviderResponse(id: id, opened: provider)
+                return ProviderResponse(v: wireVersion, id: id, opened: provider)
             }
             throw HelperError.unsupportedMethod
         } catch {
-            return ProviderResponse(id: id, error: error as? HelperError ?? .providerUnavailable)
+            return ProviderResponse(v: wireVersion, id: id, error: error as? HelperError ?? .providerUnavailable)
         }
     }
 }
 
 public struct ProviderResponse: Encodable {
-    public let v = 3
+    public let v: Int
     public let id: String?
     public let ok: Bool
     public let error: HelperError?
     public let snapshot: ProviderSnapshot?
     public let availability: ProviderAvailability?
     public let opened: VPNProvider?
-    init(id: String?, error: HelperError? = nil, snapshot: ProviderSnapshot? = nil,
+    init(v: Int = 3, id: String?, error: HelperError? = nil, snapshot: ProviderSnapshot? = nil,
          availability: ProviderAvailability? = nil, opened: VPNProvider? = nil) {
-        self.id = id; self.ok = error == nil; self.error = error
+        self.v = v; self.id = id; self.ok = error == nil; self.error = error
         self.snapshot = snapshot; self.availability = availability; self.opened = opened
     }
 }
@@ -117,6 +127,7 @@ public func defaultVPNAdapter(_ provider: VPNProvider) -> VPNAdapter {
     case .mullvad: return MullvadAdapter()
     case .ivpn: return IVPNAdapter()
     case .nordvpn: return NordVPNAdapter()
+    case .protonvpn: return ProtonVPNAdapter()
     }
 }
 

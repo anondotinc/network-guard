@@ -1,7 +1,9 @@
 import Foundation
 import CoreFoundation
 
-/// Local build information only. Discovery never constructs or invokes a VPN adapter.
+/// Frozen v4 compatibility view. Proton's additive v5 probe/open protocol is
+/// negotiated separately; older extensions strictly validate the v4 inventory.
+/// Discovery never constructs or invokes a VPN adapter.
 public struct HelperDescription: Codable, Equatable {
     public let version: String
     public let channel: String

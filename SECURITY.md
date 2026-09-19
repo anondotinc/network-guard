@@ -3,8 +3,12 @@
 ## Scope
 
 The native helper is a short-lived Chrome native-messaging process, not a service.
-It has no sockets, wallet IPC, login storage, telemetry, automatic updater, or shell
-command API. The user retains control of VPN accounts and configuration.
+The VPN protocols have no sockets, wallet IPC, login storage, telemetry, automatic
+updater, or shell command API. The user retains control of VPN accounts and configuration.
+Development builds from 0.1.4 have a separate opt-in v7 RPC proxy transport which
+handles RPC URLs, headers and bodies and opens outbound connections through
+a user-selected SOCKS5 proxy. See [its boundary and limits](docs/rpc-proxy.md).
+It has no listening server and is not exposed by production builds.
 
 Only one exact `chrome-extension://<id>/` origin is accepted in each build channel.
 Chrome's `nativeMessaging` permission and the user-owned host manifest are required.
@@ -12,7 +16,7 @@ The origin argument is not a defense against another process already running as
 the same user: local same-user compromise is outside this boundary. Production and
 development helper identities never share an allowlist.
 
-Requests and responses are limited to 4 KiB. IDs are UUIDs; schemas reject extra
+VPN requests and responses are limited to 4 KiB. IDs are UUIDs; schemas reject extra
 fields. A process handles at most 128 frames. Provider subprocess output is capped
 at 64 KiB with fixed deadlines (usually 3 seconds; IVPN connect 18 seconds). No raw
 provider output, credentials, account details, IPs, or arbitrary exceptions cross
@@ -20,7 +24,7 @@ the protocol. Unknown state fails closed. A timeout is an uncertain operation, n
 proof that the VPN did not connect.
 
 Provider paths, arguments, versions and signing requirements are fixed in source.
-Local signature validation forbids certificate network access. Caller-supplied
+Local signature validation forbids certificate network access. VPN caller-supplied
 paths, commands, servers, accounts, tokens, URLs, and environment are rejected.
 Connection operations serialize with a same-user no-follow lock. The v3 flow
 refuses to create a second known tunnel or act on uncertain alternate-provider

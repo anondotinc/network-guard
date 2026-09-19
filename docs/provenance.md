@@ -34,3 +34,37 @@ security audit. Final source-publication approval remains with the Anon owner.
 Independent provider-pin verification remains a distribution gate, not a claim
 established by passing synthetic tests. See the [release checklist](release-checklist.md).
 No unverifiable source commit is invented for the initial extracted helper input.
+
+## Proton VPN macOS adapter (2026-09-17)
+
+Official sources reviewed at ProtonVPN/ios-mac-app commit
+`6973fc1f7703314d80cada3eba377766c55710e5`:
+
+- [macOS project](https://github.com/ProtonVPN/ios-mac-app/blob/6973fc1f7703314d80cada3eba377766c55710e5/apps/macos/macOS.xcodeproj/project.pbxproj)
+  independently declares bundle ID `ch.protonvpn.mac` and signing team `J6S6Q257EK`.
+  These match the installed website app's 6.5.1 code-signing metadata; the local
+  binary alone was not used to establish the trust pin.
+- [macOS URL handler](https://github.com/ProtonVPN/ios-mac-app/blob/6973fc1f7703314d80cada3eba377766c55710e5/apps/macos/ProtonVPN/AppDelegate.swift)
+  handles `protonvpn://refresh`; it does not expose a connect/status command.
+- [Official macOS guide](https://protonvpn.com/support/protonvpn-mac-vpn-application)
+  describes managing the connection in Proton's app. The
+  [official CLI](https://github.com/ProtonVPN/proton-vpn-cli) is for Linux.
+
+The Anon-owned adapter verifies the fixed `/Applications/ProtonVPN.app` path
+against Apple's trust anchor, identifier and team, then opens that app on explicit
+request with a three-second deadline. No vendor implementation was copied.
+
+The 0.1.3 status adapter additionally pins app version 6.5.1 and discovers a saved
+WireGuard service using public SystemConfiguration preferences. The same official
+macOS project declares `ch.protonvpn.mac.WireGuard-Extension`; this matches the
+provider identifier observed on the local service. The editable name is not used.
+Apple's [scutil source](https://github.com/apple-oss-distributions/configd/blob/main/scutil.tproj/nc.c)
+and local command help document `--nc status`. Only its first-line tunnel state
+is retained; extended output is discarded. Three-second/64 KiB bounds apply.
+
+No custom URL, Proton preference/credential read, UI scripting, IP lookup or
+connection-control command is used. This reads macOS tunnel state, not browser
+routing. Missing/ambiguous profiles and unsupported app versions fail closed.
+Synthetic fixtures cover all normalized states and failures; live connected-state
+acceptance and signed distribution remain separate gates. See the
+[local investigation](proton-macos-control-investigation.md).

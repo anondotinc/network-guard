@@ -5,22 +5,22 @@ import Foundation
 public enum NativeFrames {
     public static let maxBytes = 4096
 
-    public static func encode(_ data: Data) throws -> Data {
-        guard !data.isEmpty, data.count <= maxBytes else { throw HelperError.invalidFrame }
+    public static func encode(_ data: Data, limit: Int = maxBytes) throws -> Data {
+        guard !data.isEmpty, data.count <= limit else { throw HelperError.invalidFrame }
         var size = UInt32(data.count).littleEndian
         var result = withUnsafeBytes(of: &size) { Data($0) }
         result.append(data)
         return result
     }
 
-    public static func length(_ header: Data) throws -> Int {
+    public static func length(_ header: Data, limit: Int = maxBytes) throws -> Int {
         guard header.count == 4 else { throw HelperError.invalidFrame }
         let value = header.enumerated().reduce(UInt32(0)) { $0 | (UInt32($1.element) << ($1.offset * 8)) }
-        guard value > 0, value <= maxBytes else { throw HelperError.invalidFrame }
+        guard value > 0, value <= limit else { throw HelperError.invalidFrame }
         return Int(value)
     }
 
-    public static func read(from input: FileHandle) throws -> Data? {
+    public static func read(from input: FileHandle, limit: Int = maxBytes) throws -> Data? {
         func exact(_ count: Int, allowEOF: Bool = false) throws -> Data? {
             var data = Data()
             while data.count < count {
@@ -33,7 +33,7 @@ public enum NativeFrames {
             return data
         }
         guard let header = try exact(4, allowEOF: true) else { return nil }
-        return try exact(length(header))
+        return try exact(length(header, limit: limit))
     }
 }
 

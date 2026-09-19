@@ -28,9 +28,17 @@ branch protection while the repository remains private. See
 
 ## Downloadable installer — separate approval
 
+- [ ] For each new VPN/feature, bump `NetworkGuardBuild.version` and build number,
+  record its minimum helper version in the extension, and preserve existing
+  native wire shapes. Exercise old helper → update required → new helper → retry
+  without changing consent. Confirm `describe` reports the installed version in
+  both channels. Ship the signed installer and activate its verified download
+  before releasing the extension that needs it; update its bundled recommendation.
 - [ ] Independently confirm provider signing identities, exact supported versions,
   commands, output parsing and provider side effects from official distributions.
-  Preserve the limited IVPN and launch-only NordVPN descriptions.
+  Preserve the limited IVPN, launch-only NordVPN, and read-only WireGuard
+  Proton VPN 6.5.1 descriptions. Validate Proton transitions with app-controlled
+  connections; no Proton auto-connect capability is advertised.
 - [ ] Complete the [manual acceptance matrix](testing.md#what-still-needs-manual-acceptance),
   including a clean production-only Apple-silicon Mac and a real Intel Mac.
 - [ ] Approve Developer ID Application identity/key access and notarization profile.

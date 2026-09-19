@@ -43,8 +43,18 @@ do {
     for _ in 0..<128 {
         guard let payload = try NativeFrames.read(from: .standardInput) else { break }
         let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any]
+        #if DEBUG
+        // Separate, explicitly negotiated development transport. Legacy frames
+        // retain their 4 KiB limit and their local-only provider contracts.
+        if object?["v"] as? Int == 7 {
+            try RPCProxySession.run(hello: payload, input: .standardInput, output: .standardOutput)
+            break
+        }
+        #endif
         let response: Data
         switch object?["v"] as? Int {
+        case 6: response = try encoder.encode(providers.handle(payload, version: 6))
+        case 5: response = try encoder.encode(providers.handle(payload, version: 5))
         case 4: response = try encoder.encode(DiscoveryService().handle(payload))
         case 3: response = try encoder.encode(providers.handle(payload))
         case 2: response = try encoder.encode(controls.handle(payload))

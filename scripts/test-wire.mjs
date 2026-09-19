@@ -59,6 +59,13 @@ const requests = [
   { v: 3, id, method: 'connectSelected', provider: 'not-a-provider' },
   { v: 4, id, method: 'describe', wallet: 'never accepted' },
   { v: 99, id, method: 'describe' },
+  { v: 5, id, method: 'status', provider: 'protonvpn' },
+  { v: 5, id, method: 'connectSelected', provider: 'protonvpn' },
+  { v: 3, id, method: 'openApp', provider: 'protonvpn' },
+  { v: 5, id, method: 'openApp', provider: 'protonvpn', path: '/tmp/not-allowed.app' },
+  { v: 6, id, method: 'connectSelected', provider: 'protonvpn' },
+  { v: 6, id, method: 'status', provider: 'protonvpn', service: 'never-accepted' },
+  { v: 6, id, method: 'status', provider: 'nordvpn' },
 ];
 const response = run(Buffer.concat(requests.map(frame)));
 assert.equal(response.status, 0);
@@ -72,6 +79,9 @@ assert.deepEqual(replies[1].capabilities, ['read-status', 'read-only-prototype']
 assert.deepEqual(replies[2].capabilities, ['connect-selected', 'development-control-pilot']);
 for (const reply of replies.slice(3)) assert.equal(reply.ok, false);
 assert.equal(replies[6].error, 'unsupportedVersion');
+assert.deepEqual(replies[7], { v: 5, id, ok: false, error: 'unsupportedMethod' });
+assert.deepEqual(replies[8], { v: 5, id, ok: false, error: 'unsupportedMethod' });
+assert.deepEqual(replies[9], { v: 3, id, ok: false, error: 'invalidRequest' });
 for (const origin of [origins[channel === 'development' ? 'production' : 'development'],
   'https://example.test/', origins[channel] + 'page', 'chrome-extension://*/']) {
   const rejected = run(frame(requests[0]), origin);

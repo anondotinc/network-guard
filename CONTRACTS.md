@@ -25,7 +25,7 @@ It performs no provider or network operation. Success is exactly:
   "id": "<same UUID>",
   "ok": true,
   "helper": {
-    "version": "0.1.1",
+    "version": "0.1.3",
     "channel": "development",
     "protocols": [1, 2, 3, 4],
     "providers": ["mullvad", "ivpn", "nordvpn"],
@@ -42,7 +42,31 @@ Host/origin enrollment stays one exact extension origin per build channel.
 Provider limitations remain in the provider registry and user documentation;
 capabilities describe the helper, not a claim that every provider supports each one.
 
+## Proton VPN provider v5
+
+Network Guard 0.1.2 adds a separate v5 provider contract for `protonvpn`, with only
+`probe` and `openApp`. Existing v1–v4 schemas and the strict v4 discovery inventory
+remain unchanged. New clients first read v4 `describe.version` and require 0.1.2
+or later for Proton's v5 operations. Old helpers can return `invalidRequest`
+before recognizing an unknown version; this error is not a compatibility probe.
+Show an update action from validated version metadata; never send a fallback command.
+See [the v5 wire contract](docs/protocol.md#proton-vpn-v5).
+
+## Proton VPN status v6
+
+Network Guard 0.1.3 adds only `status` for `protonvpn` under v6. The request has
+exactly `v,id,method,provider`; success returns a normalized `snapshot` with
+`protection:unknown` and `reason:route-not-verified`. Require 0.1.3 for this
+operation, while retaining the 0.1.2 minimum for v5 probe/open. Do not infer
+connection-control capability from status support. While Proton is selected and local access is allowed, the extension checks
+status on wallet opening and about every 30 seconds, independently of auto-connect.
+See [the v6 wire contract](docs/protocol.md#proton-vpn-status-v6).
+
 ## Release catalog v1
+
+The opt-in development RPC transport is documented separately in
+[v7 RPC proxy](docs/rpc-proxy.md). Its negotiated payload frames and outbound
+network scope do not change existing VPN request or discovery schemas.
 
 Owner: `release/catalog.schema.json`. Consumers pin the schema and pure Node/ESM
 validator (`release/catalog.mjs`) and verify byte-for-byte contract parity in tests.
