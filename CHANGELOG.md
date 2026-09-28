@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+- Add v8 `describe`: platform, architecture, build and a per-provider capability
+  map, because capabilities now differ by operating system. v1–v6 and the frozen
+  v4 inventory are unchanged. The macOS router moved from `main.swift` into
+  `NativeRouter` so it can be tested whole.
+- Add shared wire fixtures in `conformance/` (78 router cases plus framing,
+  origin and status-parser cases), recorded from the Swift helper and run by
+  both the Swift and Rust test suites.
+- Add a Rust helper and setup program for Linux (x86_64, arm64; static musl).
+  Provider apps are trusted through root-owned paths and the system package
+  database at pinned versions. Setup is per-user and registers Chrome, Chromium,
+  Brave and Edge. See [Linux](docs/linux.md).
+- Release catalog: `linux` helper artifacts (`.tar.gz`, `arm64`/`x86_64`) with
+  `signing: {kind: "catalog-sha256"}`. `release/cli.mjs package-linux` builds a
+  byte-reproducible archive from a staged folder.
+- CI builds and tests the Linux helper on x86_64 and arm64 runners, and runs the
+  shared fixtures against the Rust helper on macOS.
+
+This source candidate is not a signed or published release.
+
 ## 0.1.4 — build 7 — published (2026-09-17)
 
 - Signed and notarized universal macOS production installer published to R2.

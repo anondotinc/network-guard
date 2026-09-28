@@ -62,6 +62,46 @@ connection-control capability from status support. While Proton is selected and 
 status on wallet opening and about every 30 seconds, independently of auto-connect.
 See [the v6 wire contract](docs/protocol.md#proton-vpn-status-v6).
 
+## Platform discovery v8
+
+v8 `describe` adds the platform and a per-provider capability map, because
+capabilities now differ by operating system. It is the same static, provider-free
+read as v4; v4 stays frozen for installed extensions. The only v8 request is
+exactly `{ "v": 8, "id": "<UUID>", "method": "describe" }`. Success:
+
+```json
+{
+  "v": 8,
+  "id": "<same UUID>",
+  "ok": true,
+  "helper": {
+    "version": "0.1.4",
+    "build": 7,
+    "channel": "production",
+    "platform": "linux",
+    "arch": "x86_64",
+    "protocols": [1, 2, 3, 4, 5, 8],
+    "providers": {
+      "mullvad": ["read-status", "connect-selected"],
+      "ivpn": ["read-status", "connect-selected"],
+      "nordvpn": ["open-app"],
+      "protonvpn": ["open-app"]
+    }
+  }
+}
+```
+
+`platform` is `macos`, `linux` or `windows`; `arch` is `arm64` or `x86_64`.
+`providers` lists what this helper can do per provider on this platform. Wire
+versions per operation are unchanged: Proton uses v5 for `probe`/`openApp` and v6
+for `status`, other providers use v3. A helper that doesn't know v8 replies with
+its legacy `{v:1,ok:false,error:"unsupportedVersion"}`; the client then sends v4
+on the same port. Helpers built before v8 exist only on macOS.
+
+Every helper runs the fixtures in [`conformance/`](conformance/README.md), which
+pin each request's exact reply, including the order of checks that decides which
+error and whether the reply carries the request id.
+
 ## Release catalog v1
 
 The opt-in development RPC transport is documented separately in
@@ -77,8 +117,8 @@ Root: `{schemaVersion:1,releases:[]}`. A release has exactly `product`, `version
 `android`, `network-helper`, `desktop`. Channels: `test`, `stable`. Status:
 `unreleased`, `published`, `withdrawn`. Desktop is not an available product here.
 
-Artifacts contain `platform` (`android` or `macos`), `architecture` (`universal`,
-`arm64`, `x86_64`, Android-only `arm64-x86_64`), `minimumOs`, `filename`, `bytes` (positive integer), `sha256`
+Artifacts contain `platform` (`android`, `macos`, or helper-only `linux`), `architecture` (`universal`,
+`arm64`, `x86_64`, Android-only `arm64-x86_64`; Linux is `arm64` or `x86_64` only), `minimumOs`, `filename`, `bytes` (positive integer), `sha256`
 (64 lowercase hex), `signing` (structured product-specific signing identity), and
 `location` (HTTPS download URL). APK catalog URLs are confined to
 `https://downloads.anon.inc/` for new imports. Any previously signed
@@ -95,8 +135,14 @@ when APK inspection confirms that; the dual 64-bit mobile output has its own
 explicit label. The importer rejects other unsupported ABI sets.
 
 `signing` for Android: `{kind:"android",certificateSha256:<64 lowercase hex>,
-packageName:<verified package>}`. For helper: `{kind:"apple-developer-id",
+packageName:<verified package>}`. For the macOS helper: `{kind:"apple-developer-id",
 teamId:<verified team>,identity:<verified certificate identity>,notarized:true}`.
+For the Linux helper (`.tar.gz`): exactly `{kind:"catalog-sha256"}`. Linux has no
+OS signature for the tarball; its authenticity is the detached catalog signature,
+which pins the SHA-256. Consumers that copy `catalog.mjs` (the site's
+`src/lib/releases/vendor/catalog.mjs`) must take this version before a catalog
+containing a Linux artifact is imported, and must not render Linux artifacts as
+macOS downloads.
 Optional `source`: `{repository:<verified HTTPS repository URL>,commit:<40 hex>}`.
 No guessed source references. `published` requires verified artifacts; absent
 files stay unavailable. An empty catalog never implies downloadable releases.

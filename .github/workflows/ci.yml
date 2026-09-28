@@ -36,11 +36,57 @@ jobs:
         run: node scripts/test-native.mjs
       - name: Native and installer tests (release)
         run: node scripts/test-native.mjs -c release
+      - name: Shared wire fixtures against the Rust helper
+        working-directory: rust
+        run: cargo test --locked --test conformance
       - name: Universal setup builds and static wire checks
         run: |
           node scripts/build-setup.mjs --channel production
           node scripts/test-wire.mjs --channel production
           node scripts/build-setup.mjs --channel development
           node scripts/test-wire.mjs --channel development
+      - name: Verify tracked source is unchanged
+        run: git diff --exit-code
+
+  linux:
+    name: Linux helper (${{ matrix.runner }})
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Rust toolchain with static musl targets
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy,rustfmt
+          rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl
+      - name: Rust unit, installer and shared wire tests
+        working-directory: rust
+        run: |
+          cargo fmt --check
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo clippy --locked --all-targets --features development -- -D warnings
+          cargo test --locked
+          cargo test --locked --features development
+      - name: Static builds with wire and setup checks
+        run: |
+          node scripts/build-linux.mjs --channel production
+          node scripts/build-linux.mjs --channel development
+      - name: Linux release packaging (GNU tar)
+        run: |
+          node --test release/tests/linux.test.mjs
+          version=$(node --input-type=module -e "import { buildVersion } from './scripts/version.mjs'; console.log(buildVersion.version)")
+          build=$(node --input-type=module -e "import { buildVersion } from './scripts/version.mjs'; console.log(buildVersion.build)")
+          node release/cli.mjs package-linux --folder dist/linux/production/anon-network-guard-"$version"-linux-* --version "$version" --build-id "$build" --out dist/linux/package
       - name: Verify tracked source is unchanged
         run: git diff --exit-code

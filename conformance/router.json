@@ -1,0 +1,1758 @@
+{
+  "cases": [
+    {
+      "name": "non-JSON payload falls through to v1 and fails closed",
+      "requestText": "not json",
+      "response": {
+        "error": "invalidRequest",
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "name": "JSON array payload is rejected",
+      "requestText": "[]",
+      "response": {
+        "error": "invalidRequest",
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "name": "unknown version is answered by v1 as unsupported",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "status",
+        "v": 99
+      },
+      "response": {
+        "error": "unsupportedVersion",
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "name": "development RPC handshake is not served by the router",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "rpcCapabilities",
+        "v": 7
+      },
+      "response": {
+        "error": "unsupportedVersion",
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "name": "string version is unsupported",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "status",
+        "v": "1"
+      },
+      "response": {
+        "error": "unsupportedVersion",
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "name": "boolean version is unsupported",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "status",
+        "v": true
+      },
+      "response": {
+        "error": "unsupportedVersion",
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "name": "fractional version is unsupported",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "describe",
+        "v": 4.5
+      },
+      "response": {
+        "error": "unsupportedVersion",
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "calls": {
+        "mullvad": {
+          "connects": 0,
+          "opens": 0,
+          "reads": 1
+        }
+      },
+      "name": "v1 status returns the Mullvad snapshot",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "status",
+        "v": 1
+      },
+      "response": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "snapshot": {
+          "installation": "verified-local-signature",
+          "protection": "unknown",
+          "provider": "mullvad",
+          "providerVersion": "2026.4",
+          "reason": "route-not-verified",
+          "tunnel": "connected"
+        },
+        "v": 1
+      },
+      "scenario": {
+        "providers": {
+          "mullvad": {
+            "state": "connected"
+          }
+        }
+      }
+    },
+    {
+      "name": "v1 lowercases an uppercase request id",
+      "request": {
+        "id": "01234567-89AB-4DEF-8123-456789ABCDEF",
+        "method": "status",
+        "v": 1
+      },
+      "response": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "snapshot": {
+          "installation": "verified-local-signature",
+          "protection": "unknown",
+          "provider": "mullvad",
+          "providerVersion": "2026.4",
+          "reason": "route-not-verified",
+          "tunnel": "disconnected"
+        },
+        "v": 1
+      }
+    },
+    {
+      "calls": {
+        "mullvad": {
+          "connects": 0,
+          "opens": 0,
+          "reads": 0
+        }
+      },
+      "name": "v1 capabilities are read-only",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "capabilities",
+        "v": 1
+      },
+      "response": {
+        "capabilities": [
+          "read-status",
+          "read-only-prototype"
+        ],
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "v": 1
+      }
+    },
+    {
+      "name": "v1 integral float version is accepted",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "status",
+        "v": 1
+      },
+      "response": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "snapshot": {
+          "installation": "verified-local-signature",
+          "protection": "unknown",
+          "provider": "mullvad",
+          "providerVersion": "2026.4",
+          "reason": "route-not-verified",
+          "tunnel": "disconnected"
+        },
+        "v": 1
+      }
+    },
+    {
+      "name": "v1 rejects an extra key",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "status",
+        "path": "/bin/sh",
+        "v": 1
+      },
+      "response": {
+        "error": "invalidRequest",
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "name": "v1 rejects a non-UUID id",
+      "request": {
+        "id": "account-id",
+        "method": "status",
+        "v": 1
+      },
+      "response": {
+        "error": "invalidRequest",
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "name": "v1 rejects a 36-character non-UUID id",
+      "request": {
+        "id": "0123456789abcdef0123456789abcdef0123",
+        "method": "status",
+        "v": 1
+      },
+      "response": {
+        "error": "invalidRequest",
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "name": "v1 rejects a numeric method",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": 1,
+        "v": 1
+      },
+      "response": {
+        "error": "invalidRequest",
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "name": "v1 rejects mutation method connect",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "connect",
+        "v": 1
+      },
+      "response": {
+        "error": "unsupportedMethod",
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "name": "v1 rejects mutation method disconnect",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "disconnect",
+        "v": 1
+      },
+      "response": {
+        "error": "unsupportedMethod",
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "name": "v1 rejects mutation method exec",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "exec",
+        "v": 1
+      },
+      "response": {
+        "error": "unsupportedMethod",
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "name": "v1 rejects mutation method status;connect",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "status;connect",
+        "v": 1
+      },
+      "response": {
+        "error": "unsupportedMethod",
+        "ok": false,
+        "v": 1
+      }
+    },
+    {
+      "name": "v1 reports notInstalled",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "status",
+        "v": 1
+      },
+      "response": {
+        "error": "notInstalled",
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": false,
+        "v": 1
+      },
+      "scenario": {
+        "providers": {
+          "mullvad": {
+            "installed": false
+          }
+        }
+      }
+    },
+    {
+      "name": "v1 passes through untrustedInstallation",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "status",
+        "v": 1
+      },
+      "response": {
+        "error": "untrustedInstallation",
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": false,
+        "v": 1
+      },
+      "scenario": {
+        "providers": {
+          "mullvad": {
+            "failure": "untrustedInstallation"
+          }
+        }
+      }
+    },
+    {
+      "name": "v1 passes through unsupportedProviderVersion",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "status",
+        "v": 1
+      },
+      "response": {
+        "error": "unsupportedProviderVersion",
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": false,
+        "v": 1
+      },
+      "scenario": {
+        "providers": {
+          "mullvad": {
+            "failure": "unsupportedProviderVersion"
+          }
+        }
+      }
+    },
+    {
+      "name": "v1 passes through providerTimeout",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "status",
+        "v": 1
+      },
+      "response": {
+        "error": "providerTimeout",
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": false,
+        "v": 1
+      },
+      "scenario": {
+        "providers": {
+          "mullvad": {
+            "failure": "providerTimeout"
+          }
+        }
+      }
+    },
+    {
+      "name": "v1 passes through unrecognizedStatus",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "status",
+        "v": 1
+      },
+      "response": {
+        "error": "unrecognizedStatus",
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": false,
+        "v": 1
+      },
+      "scenario": {
+        "providers": {
+          "mullvad": {
+            "failure": "unrecognizedStatus"
+          }
+        }
+      }
+    },
+    {
+      "name": "v2 capabilities",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "capabilities",
+        "v": 2
+      },
+      "response": {
+        "capabilities": [
+          "connect-selected",
+          "development-control-pilot"
+        ],
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "v": 2
+      }
+    },
+    {
+      "calls": {
+        "mullvad": {
+          "connects": 1,
+          "opens": 0,
+          "reads": 3
+        }
+      },
+      "name": "v2 connects a disconnected Mullvad once",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "connectSelected",
+        "v": 2
+      },
+      "response": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "snapshot": {
+          "installation": "verified-local-signature",
+          "protection": "unknown",
+          "provider": "mullvad",
+          "providerVersion": "2026.4",
+          "reason": "route-not-verified",
+          "tunnel": "connecting"
+        },
+        "v": 2
+      }
+    },
+    {
+      "calls": {
+        "mullvad": {
+          "connects": 0,
+          "opens": 0,
+          "reads": 1
+        }
+      },
+      "name": "v2 leaves a connected tunnel alone",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "connectSelected",
+        "v": 2
+      },
+      "response": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "snapshot": {
+          "installation": "verified-local-signature",
+          "protection": "unknown",
+          "provider": "mullvad",
+          "providerVersion": "2026.4",
+          "reason": "route-not-verified",
+          "tunnel": "connected"
+        },
+        "v": 2
+      },
+      "scenario": {
+        "providers": {
+          "mullvad": {
+            "state": "connected"
+          }
+        }
+      }
+    },
+    {
+      "calls": {
+        "mullvad": {
+          "connects": 0,
+          "opens": 0,
+          "reads": 1
+        }
+      },
+      "name": "v2 leaves a connecting tunnel alone",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "connectSelected",
+        "v": 2
+      },
+      "response": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "snapshot": {
+          "installation": "verified-local-signature",
+          "protection": "unknown",
+          "provider": "mullvad",
+          "providerVersion": "2026.4",
+          "reason": "route-not-verified",
+          "tunnel": "connecting"
+        },
+        "v": 2
+      },
+      "scenario": {
+        "providers": {
+          "mullvad": {
+            "state": "connecting"
+          }
+        }
+      }
+    },
+    {
+      "calls": {
+        "mullvad": {
+          "connects": 0,
+          "opens": 0,
+          "reads": 1
+        }
+      },
+      "name": "v2 refuses to fight a disconnecting tunnel",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "connectSelected",
+        "v": 2
+      },
+      "response": {
+        "error": "providerUnavailable",
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": false,
+        "v": 2
+      },
+      "scenario": {
+        "providers": {
+          "mullvad": {
+            "state": "disconnecting"
+          }
+        }
+      }
+    },
+    {
+      "name": "v2 refuses an error state",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "connectSelected",
+        "v": 2
+      },
+      "response": {
+        "error": "providerUnavailable",
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": false,
+        "v": 2
+      },
+      "scenario": {
+        "providers": {
+          "mullvad": {
+            "state": "error"
+          }
+        }
+      }
+    },
+    {
+      "name": "v2 rejects status",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "status",
+        "v": 2
+      },
+      "response": {
+        "error": "unsupportedMethod",
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": false,
+        "v": 2
+      }
+    },
+    {
+      "calls": {
+        "mullvad": {
+          "connects": 0,
+          "opens": 0,
+          "reads": 0
+        }
+      },
+      "name": "v2 is unavailable when control is disabled",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "connectSelected",
+        "v": 2
+      },
+      "response": {
+        "error": "unsupportedMethod",
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": false,
+        "v": 2
+      },
+      "scenario": {
+        "control": false
+      }
+    },
+    {
+      "name": "v2 rejects an extra key",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "connectSelected",
+        "provider": "ivpn",
+        "v": 2
+      },
+      "response": {
+        "error": "invalidRequest",
+        "ok": false,
+        "v": 2
+      }
+    },
+    {
+      "calls": {
+        "mullvad": {
+          "connects": 0,
+          "opens": 0,
+          "reads": 0
+        }
+      },
+      "name": "v3 probe mullvad validates without reading",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "probe",
+        "provider": "mullvad",
+        "v": 3
+      },
+      "response": {
+        "availability": {
+          "available": true,
+          "capabilities": [
+            "read-status",
+            "connect-selected"
+          ],
+          "provider": "mullvad"
+        },
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "v": 3
+      }
+    },
+    {
+      "calls": {
+        "ivpn": {
+          "connects": 0,
+          "opens": 0,
+          "reads": 0
+        }
+      },
+      "name": "v3 probe ivpn validates without reading",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "probe",
+        "provider": "ivpn",
+        "v": 3
+      },
+      "response": {
+        "availability": {
+          "available": true,
+          "capabilities": [
+            "read-status",
+            "connect-selected"
+          ],
+          "provider": "ivpn"
+        },
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "v": 3
+      }
+    },
+    {
+      "calls": {
+        "nordvpn": {
+          "connects": 0,
+          "opens": 0,
+          "reads": 0
+        }
+      },
+      "name": "v3 probe nordvpn validates without reading",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "probe",
+        "provider": "nordvpn",
+        "v": 3
+      },
+      "response": {
+        "availability": {
+          "available": true,
+          "capabilities": [
+            "open-app"
+          ],
+          "provider": "nordvpn"
+        },
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "v": 3
+      }
+    },
+    {
+      "name": "v3 probe reports a missing provider as unavailable",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "probe",
+        "provider": "ivpn",
+        "v": 3
+      },
+      "response": {
+        "availability": {
+          "available": false,
+          "capabilities": [
+            "read-status",
+            "connect-selected"
+          ],
+          "error": "notInstalled",
+          "provider": "ivpn"
+        },
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "v": 3
+      },
+      "scenario": {
+        "providers": {
+          "ivpn": {
+            "installed": false
+          }
+        }
+      }
+    },
+    {
+      "name": "v3 probe reports an untrusted provider as unavailable",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "probe",
+        "provider": "mullvad",
+        "v": 3
+      },
+      "response": {
+        "availability": {
+          "available": false,
+          "capabilities": [
+            "read-status",
+            "connect-selected"
+          ],
+          "error": "untrustedInstallation",
+          "provider": "mullvad"
+        },
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "v": 3
+      },
+      "scenario": {
+        "providers": {
+          "mullvad": {
+            "failure": "untrustedInstallation"
+          }
+        }
+      }
+    },
+    {
+      "calls": {
+        "ivpn": {
+          "connects": 0,
+          "opens": 0,
+          "reads": 1
+        }
+      },
+      "name": "v3 status reads IVPN",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "status",
+        "provider": "ivpn",
+        "v": 3
+      },
+      "response": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "snapshot": {
+          "installation": "verified-local-signature",
+          "protection": "unknown",
+          "provider": "ivpn",
+          "providerVersion": "3.15.15",
+          "reason": "route-not-verified",
+          "tunnel": "connected"
+        },
+        "v": 3
+      },
+      "scenario": {
+        "providers": {
+          "ivpn": {
+            "state": "connected"
+          }
+        }
+      }
+    },
+    {
+      "calls": {
+        "nordvpn": {
+          "connects": 0,
+          "opens": 0,
+          "reads": 0
+        }
+      },
+      "name": "v3 status is not offered for NordVPN",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "status",
+        "provider": "nordvpn",
+        "v": 3
+      },
+      "response": {
+        "error": "unsupportedMethod",
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": false,
+        "v": 3
+      }
+    },
+    {
+      "name": "v3 connect is not offered for NordVPN",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "connectSelected",
+        "provider": "nordvpn",
+        "v": 3
+      },
+      "response": {
+        "error": "unsupportedMethod",
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": false,
+        "v": 3
+      }
+    },
+    {
+      "calls": {
+        "mullvad": {
+          "connects": 1,
+          "opens": 0,
+          "reads": 2
+        }
+      },
+      "name": "v3 connects Mullvad when IVPN is not installed",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "connectSelected",
+        "provider": "mullvad",
+        "v": 3
+      },
+      "response": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "snapshot": {
+          "installation": "verified-local-signature",
+          "protection": "unknown",
+          "provider": "mullvad",
+          "providerVersion": "2026.4",
+          "reason": "route-not-verified",
+          "tunnel": "connecting"
+        },
+        "v": 3
+      },
+      "scenario": {
+        "providers": {
+          "ivpn": {
+            "installed": false
+          }
+        }
+      }
+    },
+    {
+      "calls": {
+        "ivpn": {
+          "connects": 0,
+          "opens": 0,
+          "reads": 1
+        },
+        "mullvad": {
+          "connects": 1,
+          "opens": 0,
+          "reads": 2
+        }
+      },
+      "name": "v3 connects Mullvad when IVPN is disconnected",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "connectSelected",
+        "provider": "mullvad",
+        "v": 3
+      },
+      "response": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "snapshot": {
+          "installation": "verified-local-signature",
+          "protection": "unknown",
+          "provider": "mullvad",
+          "providerVersion": "2026.4",
+          "reason": "route-not-verified",
+          "tunnel": "connecting"
+        },
+        "v": 3
+      }
+    },
+    {
+      "calls": {
+        "mullvad": {
+          "connects": 0,
+          "opens": 0,
+          "reads": 1
+        }
+      },
+      "name": "v3 refuses a second tunnel when IVPN is connected",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "connectSelected",
+        "provider": "mullvad",
+        "v": 3
+      },
+      "response": {
+        "error": "providerConflict",
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": false,
+        "v": 3
+      },
+      "scenario": {
+        "providers": {
+          "ivpn": {
+            "state": "connected"
+          }
+        }
+      }
+    },
+    {
+      "calls": {
+        "ivpn": {
+          "connects": 0,
+          "opens": 0,
+          "reads": 1
+        }
+      },
+      "name": "v3 refuses when the other provider cannot be trusted",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "connectSelected",
+        "provider": "ivpn",
+        "v": 3
+      },
+      "response": {
+        "error": "providerConflict",
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": false,
+        "v": 3
+      },
+      "scenario": {
+        "providers": {
+          "mullvad": {
+            "failure": "untrustedInstallation"
+          }
+        }
+      }
+    },
+    {
+      "calls": {
+        "ivpn": {
+          "connects": 0,
+          "opens": 0,
+          "reads": 1
+        }
+      },
+      "name": "v3 does not reconnect a connected provider",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "connectSelected",
+        "provider": "ivpn",
+        "v": 3
+      },
+      "response": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "snapshot": {
+          "installation": "verified-local-signature",
+          "protection": "unknown",
+          "provider": "ivpn",
+          "providerVersion": "3.15.15",
+          "reason": "route-not-verified",
+          "tunnel": "connected"
+        },
+        "v": 3
+      },
+      "scenario": {
+        "providers": {
+          "ivpn": {
+            "state": "connected"
+          }
+        }
+      }
+    },
+    {
+      "name": "v3 refuses a disconnecting provider",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "connectSelected",
+        "provider": "ivpn",
+        "v": 3
+      },
+      "response": {
+        "error": "providerUnavailable",
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": false,
+        "v": 3
+      },
+      "scenario": {
+        "providers": {
+          "ivpn": {
+            "state": "disconnecting"
+          }
+        }
+      }
+    },
+    {
+      "calls": {
+        "nordvpn": {
+          "connects": 0,
+          "opens": 1,
+          "reads": 0
+        }
+      },
+      "name": "v3 opens NordVPN",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "openApp",
+        "provider": "nordvpn",
+        "v": 3
+      },
+      "response": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "opened": "nordvpn",
+        "v": 3
+      }
+    },
+    {
+      "name": "v3 openApp reports a missing NordVPN",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "openApp",
+        "provider": "nordvpn",
+        "v": 3
+      },
+      "response": {
+        "error": "notInstalled",
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": false,
+        "v": 3
+      },
+      "scenario": {
+        "providers": {
+          "nordvpn": {
+            "installed": false
+          }
+        }
+      }
+    },
+    {
+      "calls": {
+        "mullvad": {
+          "connects": 0,
+          "opens": 0,
+          "reads": 0
+        }
+      },
+      "name": "v3 openApp is not offered for Mullvad",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "openApp",
+        "provider": "mullvad",
+        "v": 3
+      },
+      "response": {
+        "error": "unsupportedMethod",
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": false,
+        "v": 3
+      }
+    },
+    {
+      "name": "v3 rejects Proton, which needs v5",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "openApp",
+        "provider": "protonvpn",
+        "v": 3
+      },
+      "response": {
+        "error": "invalidRequest",
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": false,
+        "v": 3
+      }
+    },
+    {
+      "name": "v3 rejects an unknown provider before reading the id",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "status",
+        "provider": "wireguard",
+        "v": 3
+      },
+      "response": {
+        "error": "invalidRequest",
+        "ok": false,
+        "v": 3
+      }
+    },
+    {
+      "name": "v3 rejects a missing provider key",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "status",
+        "v": 3
+      },
+      "response": {
+        "error": "invalidRequest",
+        "ok": false,
+        "v": 3
+      }
+    },
+    {
+      "name": "v3 rejects an extra key",
+      "request": {
+        "args": [
+          "connect"
+        ],
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "status",
+        "provider": "ivpn",
+        "v": 3
+      },
+      "response": {
+        "error": "invalidRequest",
+        "ok": false,
+        "v": 3
+      }
+    },
+    {
+      "name": "v3 rejects an unknown method",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "disconnect",
+        "provider": "ivpn",
+        "v": 3
+      },
+      "response": {
+        "error": "unsupportedMethod",
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": false,
+        "v": 3
+      }
+    },
+    {
+      "name": "v3 is unavailable when control is disabled",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "status",
+        "provider": "ivpn",
+        "v": 3
+      },
+      "response": {
+        "error": "unsupportedMethod",
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": false,
+        "v": 3
+      },
+      "scenario": {
+        "control": false
+      }
+    },
+    {
+      "name": "v4 describe",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "describe",
+        "v": 4
+      },
+      "response": {
+        "helper": {
+          "capabilities": [
+            "describe",
+            "read-status",
+            "connect-selected",
+            "open-provider-app"
+          ],
+          "channel": "{{channel}}",
+          "protocols": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "providers": [
+            "mullvad",
+            "ivpn",
+            "nordvpn"
+          ],
+          "version": "{{version}}"
+        },
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "v": 4
+      }
+    },
+    {
+      "name": "v4 describe lowercases the id",
+      "request": {
+        "id": "01234567-89AB-4DEF-8123-456789ABCDEF",
+        "method": "describe",
+        "v": 4
+      },
+      "response": {
+        "helper": {
+          "capabilities": [
+            "describe",
+            "read-status",
+            "connect-selected",
+            "open-provider-app"
+          ],
+          "channel": "{{channel}}",
+          "protocols": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "providers": [
+            "mullvad",
+            "ivpn",
+            "nordvpn"
+          ],
+          "version": "{{version}}"
+        },
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "v": 4
+      }
+    },
+    {
+      "name": "v4 integral float version is accepted",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "describe",
+        "v": 4
+      },
+      "response": {
+        "helper": {
+          "capabilities": [
+            "describe",
+            "read-status",
+            "connect-selected",
+            "open-provider-app"
+          ],
+          "channel": "{{channel}}",
+          "protocols": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "providers": [
+            "mullvad",
+            "ivpn",
+            "nordvpn"
+          ],
+          "version": "{{version}}"
+        },
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "v": 4
+      }
+    },
+    {
+      "name": "v4 rejects another method",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "probe",
+        "v": 4
+      },
+      "response": {
+        "error": "unsupportedMethod",
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": false,
+        "v": 4
+      }
+    },
+    {
+      "name": "v4 rejects a provider key",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "describe",
+        "provider": "mullvad",
+        "v": 4
+      },
+      "response": {
+        "error": "invalidRequest",
+        "ok": false,
+        "v": 4
+      }
+    },
+    {
+      "name": "v4 rejects a non-UUID id",
+      "request": {
+        "id": "not-a-uuid",
+        "method": "describe",
+        "v": 4
+      },
+      "response": {
+        "error": "invalidRequest",
+        "ok": false,
+        "v": 4
+      }
+    },
+    {
+      "calls": {
+        "protonvpn": {
+          "connects": 0,
+          "opens": 0,
+          "reads": 0
+        }
+      },
+      "name": "v5 probe Proton",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "probe",
+        "provider": "protonvpn",
+        "v": 5
+      },
+      "response": {
+        "availability": {
+          "available": true,
+          "capabilities": [
+            "open-app"
+          ],
+          "provider": "protonvpn"
+        },
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "v": 5
+      }
+    },
+    {
+      "calls": {
+        "protonvpn": {
+          "connects": 0,
+          "opens": 1,
+          "reads": 0
+        }
+      },
+      "name": "v5 opens Proton",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "openApp",
+        "provider": "protonvpn",
+        "v": 5
+      },
+      "response": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "opened": "protonvpn",
+        "v": 5
+      }
+    },
+    {
+      "calls": {
+        "protonvpn": {
+          "connects": 0,
+          "opens": 0,
+          "reads": 0
+        }
+      },
+      "name": "v5 status is not offered",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "status",
+        "provider": "protonvpn",
+        "v": 5
+      },
+      "response": {
+        "error": "unsupportedMethod",
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": false,
+        "v": 5
+      }
+    },
+    {
+      "name": "v5 connect is not offered",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "connectSelected",
+        "provider": "protonvpn",
+        "v": 5
+      },
+      "response": {
+        "error": "unsupportedMethod",
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": false,
+        "v": 5
+      }
+    },
+    {
+      "name": "v5 rejects NordVPN",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "openApp",
+        "provider": "nordvpn",
+        "v": 5
+      },
+      "response": {
+        "error": "invalidRequest",
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": false,
+        "v": 5
+      }
+    },
+    {
+      "name": "v5 rejects a path key",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "openApp",
+        "path": "/tmp/fake.app",
+        "provider": "protonvpn",
+        "v": 5
+      },
+      "response": {
+        "error": "invalidRequest",
+        "ok": false,
+        "v": 5
+      }
+    },
+    {
+      "name": "v5 integral float version is accepted",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "openApp",
+        "provider": "protonvpn",
+        "v": 5
+      },
+      "response": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "opened": "protonvpn",
+        "v": 5
+      }
+    },
+    {
+      "name": "v6 reads Proton status",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "status",
+        "provider": "protonvpn",
+        "v": 6
+      },
+      "response": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "snapshot": {
+          "installation": "verified-local-signature",
+          "protection": "unknown",
+          "provider": "protonvpn",
+          "providerVersion": "6.5.1",
+          "reason": "route-not-verified",
+          "tunnel": "connected"
+        },
+        "v": 6
+      },
+      "scenario": {
+        "providers": {
+          "protonvpn": {
+            "state": "connected"
+          }
+        }
+      },
+      "responseByPlatform": {
+        "linux": {
+          "error": "unsupportedMethod",
+          "id": "01234567-89ab-4def-8123-456789abcdef",
+          "ok": false,
+          "v": 6
+        }
+      },
+      "callsByPlatform": {
+        "linux": {
+          "protonvpn": {
+            "reads": 0,
+            "connects": 0,
+            "opens": 0
+          }
+        }
+      },
+      "calls": {
+        "protonvpn": {
+          "reads": 1,
+          "connects": 0,
+          "opens": 0
+        }
+      }
+    },
+    {
+      "name": "v6 rejects openApp",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "openApp",
+        "provider": "protonvpn",
+        "v": 6
+      },
+      "response": {
+        "error": "unsupportedMethod",
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": false,
+        "v": 6
+      }
+    },
+    {
+      "name": "v6 rejects Mullvad",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "status",
+        "provider": "mullvad",
+        "v": 6
+      },
+      "response": {
+        "error": "invalidRequest",
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": false,
+        "v": 6
+      }
+    },
+    {
+      "name": "v8 describe reports platform capabilities",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "describe",
+        "v": 8
+      },
+      "response": {
+        "helper": {
+          "arch": "{{arch}}",
+          "build": "{{build}}",
+          "channel": "{{channel}}",
+          "platform": "{{platform}}",
+          "protocols": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            8
+          ],
+          "providers": {
+            "ivpn": [
+              "read-status",
+              "connect-selected"
+            ],
+            "mullvad": [
+              "read-status",
+              "connect-selected"
+            ],
+            "nordvpn": [
+              "open-app"
+            ],
+            "protonvpn": [
+              "open-app",
+              "read-status"
+            ]
+          },
+          "version": "{{version}}"
+        },
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "v": 8
+      },
+      "responseByPlatform": {
+        "linux": {
+          "helper": {
+            "arch": "{{arch}}",
+            "build": "{{build}}",
+            "channel": "{{channel}}",
+            "platform": "{{platform}}",
+            "protocols": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              8
+            ],
+            "providers": {
+              "ivpn": [
+                "read-status",
+                "connect-selected"
+              ],
+              "mullvad": [
+                "read-status",
+                "connect-selected"
+              ],
+              "nordvpn": [
+                "open-app"
+              ],
+              "protonvpn": [
+                "open-app"
+              ]
+            },
+            "version": "{{version}}"
+          },
+          "id": "01234567-89ab-4def-8123-456789abcdef",
+          "ok": true,
+          "v": 8
+        }
+      }
+    },
+    {
+      "name": "v8 describe lowercases the id",
+      "request": {
+        "id": "01234567-89AB-4DEF-8123-456789ABCDEF",
+        "method": "describe",
+        "v": 8
+      },
+      "response": {
+        "helper": {
+          "arch": "{{arch}}",
+          "build": "{{build}}",
+          "channel": "{{channel}}",
+          "platform": "{{platform}}",
+          "protocols": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            8
+          ],
+          "providers": {
+            "ivpn": [
+              "read-status",
+              "connect-selected"
+            ],
+            "mullvad": [
+              "read-status",
+              "connect-selected"
+            ],
+            "nordvpn": [
+              "open-app"
+            ],
+            "protonvpn": [
+              "open-app",
+              "read-status"
+            ]
+          },
+          "version": "{{version}}"
+        },
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "v": 8
+      },
+      "responseByPlatform": {
+        "linux": {
+          "helper": {
+            "arch": "{{arch}}",
+            "build": "{{build}}",
+            "channel": "{{channel}}",
+            "platform": "{{platform}}",
+            "protocols": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              8
+            ],
+            "providers": {
+              "ivpn": [
+                "read-status",
+                "connect-selected"
+              ],
+              "mullvad": [
+                "read-status",
+                "connect-selected"
+              ],
+              "nordvpn": [
+                "open-app"
+              ],
+              "protonvpn": [
+                "open-app"
+              ]
+            },
+            "version": "{{version}}"
+          },
+          "id": "01234567-89ab-4def-8123-456789abcdef",
+          "ok": true,
+          "v": 8
+        }
+      }
+    },
+    {
+      "name": "v8 rejects another method",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "status",
+        "v": 8
+      },
+      "response": {
+        "error": "unsupportedMethod",
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": false,
+        "v": 8
+      }
+    },
+    {
+      "name": "v8 rejects an extra key",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "describe",
+        "platform": "linux",
+        "v": 8
+      },
+      "response": {
+        "error": "invalidRequest",
+        "ok": false,
+        "v": 8
+      }
+    },
+    {
+      "name": "v8 rejects a non-UUID id",
+      "request": {
+        "id": "not-a-uuid",
+        "method": "describe",
+        "v": 8
+      },
+      "response": {
+        "error": "invalidRequest",
+        "ok": false,
+        "v": 8
+      }
+    },
+    {
+      "name": "v8 rejects a fractional version",
+      "request": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "describe",
+        "v": 8.5
+      },
+      "response": {
+        "error": "unsupportedVersion",
+        "ok": false,
+        "v": 1
+      }
+    }
+  ],
+  "description": "Request frame to response frame through the full router. See README.md."
+}

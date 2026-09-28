@@ -114,6 +114,10 @@ channel currently accepts exactly one extension ID and has a separate host name
 and installation root. See [integration contracts](CONTRACTS.md). A development
 installer does not replace production or foreign registrations.
 
+Linux builds come from the Rust port in `rust/`, which speaks the same protocol
+and passes the same [conformance fixtures](conformance/README.md). Build and trust
+details are in [Linux](docs/linux.md).
+
 The [CI workflow](.github/workflows/ci.yml) tests and builds from a checkout without
 signing keys, provider accounts or wallet state. It does not publish artifacts.
 Cross-compilation is not a substitute for live Intel and clean-Mac acceptance.
@@ -126,6 +130,8 @@ build integer for each new installer candidate. See [changes](CHANGELOG.md).
 The maintained branch is `master`; release tags identify approved immutable builds.
 
 - `Sources/`, `Tests/`, `scripts/`: helper, setup app and local verification.
+- `rust/`: the Linux helper and setup program (Windows later).
+- `conformance/`: wire fixtures every helper must pass.
 - `release/`: optional maintainer tooling for Guard releases and Anon's Android
   APK/catalog pipeline. It is **not installed with the helper** and is not needed
   for VPN checks. Publication is explicit and dry-run-first.

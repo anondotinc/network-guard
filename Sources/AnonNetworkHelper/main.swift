@@ -4,8 +4,7 @@ import NetworkHelperCore
 let encoder = JSONEncoder()
 encoder.outputFormatting = [.sortedKeys]
 let service = HelperService(provider: MullvadReader())
-let controls = ConnectionControlService(provider: MullvadReader(), enabled: NativeEnrollment.supportsConnectionControl)
-let providers = ProviderRegistry(enabled: NativeEnrollment.supportsConnectionControl)
+let router = NativeRouter.live()
 let args = Array(CommandLine.arguments.dropFirst())
 
 // Build-specific exact identity. No native host is installed by this executable.
@@ -51,16 +50,7 @@ do {
             break
         }
         #endif
-        let response: Data
-        switch object?["v"] as? Int {
-        case 6: response = try encoder.encode(providers.handle(payload, version: 6))
-        case 5: response = try encoder.encode(providers.handle(payload, version: 5))
-        case 4: response = try encoder.encode(DiscoveryService().handle(payload))
-        case 3: response = try encoder.encode(providers.handle(payload))
-        case 2: response = try encoder.encode(controls.handle(payload))
-        default: response = try encoder.encode(service.handle(payload))
-        }
-        FileHandle.standardOutput.write(try NativeFrames.encode(response))
+        FileHandle.standardOutput.write(try NativeFrames.encode(router.respond(payload)))
     }
 } catch {
     // No raw frame/exception contents on stderr or stdout.

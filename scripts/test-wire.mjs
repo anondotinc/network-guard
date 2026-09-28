@@ -66,6 +66,7 @@ const requests = [
   { v: 6, id, method: 'connectSelected', provider: 'protonvpn' },
   { v: 6, id, method: 'status', provider: 'protonvpn', service: 'never-accepted' },
   { v: 6, id, method: 'status', provider: 'nordvpn' },
+  { v: 8, id, method: 'describe' },
 ];
 const response = run(Buffer.concat(requests.map(frame)));
 assert.equal(response.status, 0);
@@ -77,7 +78,13 @@ assert.deepEqual(replies[0], { v: 4, id, ok: true, helper: {
 } });
 assert.deepEqual(replies[1].capabilities, ['read-status', 'read-only-prototype']);
 assert.deepEqual(replies[2].capabilities, ['connect-selected', 'development-control-pilot']);
-for (const reply of replies.slice(3)) assert.equal(reply.ok, false);
+for (const reply of replies.slice(3, -1)) assert.equal(reply.ok, false);
+// v8 reports the executing slice of the universal binary.
+assert.deepEqual(replies.at(-1), { v: 8, id, ok: true, helper: {
+  version: buildVersion.version, build: buildVersion.build, channel, platform: 'macos', arch: process.arch === 'arm64' ? 'arm64' : 'x86_64',
+  protocols: [1, 2, 3, 4, 5, 6, 8],
+  providers: { ivpn: ['read-status', 'connect-selected'], mullvad: ['read-status', 'connect-selected'], nordvpn: ['open-app'], protonvpn: ['open-app', 'read-status'] },
+} });
 assert.equal(replies[6].error, 'unsupportedVersion');
 assert.deepEqual(replies[7], { v: 5, id, ok: false, error: 'unsupportedMethod' });
 assert.deepEqual(replies[8], { v: 5, id, ok: false, error: 'unsupportedMethod' });
@@ -93,4 +100,4 @@ for (const invalid of [Buffer.from([1, 16, 0, 0]), Buffer.from([3, 0]), Buffer.f
 }
 const bounded = run(Buffer.concat(Array.from({ length: 129 }, () => frame(requests[0]))));
 assert.equal(bounded.status, 0); assert.equal(decode(bounded.stdout).length, 128);
-console.log(`Compiled ${channel} universal helper: discovery, legacy capabilities, origin isolation, malformed framing, and session cap passed. No provider invoked.`);
+console.log(`Compiled ${channel} universal helper: discovery (v4 and v8), legacy capabilities, origin isolation, malformed framing, and session cap passed. No provider invoked.`);

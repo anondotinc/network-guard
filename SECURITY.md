@@ -50,6 +50,17 @@ deleting a user folder. Other-channel registrations and unrelated files remain.
 Filesystem checks are not designed to resist an actively malicious same-user
 process racing every operation.
 
+## Linux
+
+The Linux helper (in `rust/`, not yet released) keeps the same protocol rules.
+Linux apps have no code signature to check, so a provider program is trusted
+only when its fixed path and every parent directory are root-owned and not
+group- or world-writable, and the system package database names the vendor's
+package, at a pinned version, as the file's sole owner. This trusts root and
+the package manager; it does not detect a root compromise. Setup is per-user,
+never asks for root, and keeps its locks in `$XDG_RUNTIME_DIR`. Flatpak and Snap
+browsers cannot start the helper. Details: [Linux](docs/linux.md).
+
 ## What is not guaranteed
 
 A provider's connected state does not prove this Chrome profile routes through it.

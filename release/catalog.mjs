@@ -52,12 +52,13 @@ export function validateCatalog(catalog) {
     r.artifacts.forEach((a, j) => {
       const ap = `${p}.artifacts[${j}]`;
       if (!exact(a, ['platform', 'architecture', 'minimumOs', 'filename', 'bytes', 'sha256', 'signing', 'location'])) { fail(ap, 'unexpected or missing fields'); return; }
-      if (!['android', 'macos'].includes(a.platform) || (r.product === 'android') !== (a.platform === 'android')) fail(ap, 'platform does not match product');
-      if (!['universal', 'arm64', 'x86_64', ...(r.product === 'android' ? ['arm64-x86_64'] : [])].includes(a.architecture)) fail(ap, 'unsupported architecture');
+      const linux = a.platform === 'linux';
+      if (!['android', 'macos', 'linux'].includes(a.platform) || (r.product === 'android') !== (a.platform === 'android') || (linux && r.product !== 'network-helper')) fail(ap, 'platform does not match product');
+      if (!(linux ? ['arm64', 'x86_64'] : ['universal', 'arm64', 'x86_64', ...(r.product === 'android' ? ['arm64-x86_64'] : [])]).includes(a.architecture)) fail(ap, 'unsupported architecture');
       if (architectures.has(`${a.platform}/${a.architecture}`)) fail(ap, 'duplicate architecture');
       architectures.add(`${a.platform}/${a.architecture}`);
       if (!text(a.minimumOs, 80)) fail(ap, 'invalid minimumOs');
-      if (typeof a.filename !== 'string' || !file.test(a.filename) || a.filename.includes('..') || !(r.product === 'android' ? a.filename.endsWith('.apk') : a.filename.endsWith('.zip'))) fail(ap, 'invalid filename');
+      if (typeof a.filename !== 'string' || !file.test(a.filename) || a.filename.includes('..') || !a.filename.endsWith(r.product === 'android' ? '.apk' : linux ? '.tar.gz' : '.zip')) fail(ap, 'invalid filename');
       if (!Number.isSafeInteger(a.bytes) || a.bytes < 1 || a.bytes > 536870912) fail(ap, 'invalid size (maximum 512 MiB)');
       if (typeof a.sha256 !== 'string' || !hex.test(a.sha256)) fail(ap, 'invalid SHA-256');
       const isR2 = R2_DOWNLOAD_ORIGINS.some((origin) => a.location === `${origin}/${id}/${a.filename}`);
@@ -66,6 +67,10 @@ export function validateCatalog(catalog) {
       locations.add(a.location);
       if (r.product === 'android') {
         if (!exact(a.signing, ['kind', 'certificateSha256', 'packageName']) || a.signing.kind !== 'android' || !hex.test(a.signing.certificateSha256) || a.signing.packageName !== 'com.ahloop.anon') fail(ap, 'invalid verified Android identity');
+      } else if (linux) {
+        // Linux has no OS signature for this tarball. Authenticity is the signed
+        // catalog pinning this SHA-256; the kind states that explicitly.
+        if (!exact(a.signing, ['kind']) || a.signing.kind !== 'catalog-sha256') fail(ap, 'Linux artifacts are authenticated by the signed catalog SHA-256');
       } else if (!exact(a.signing, ['kind', 'teamId', 'identity', 'notarized']) || a.signing.kind !== 'apple-developer-id' || !/^[A-Z0-9]{10}$/.test(a.signing.teamId) || !text(a.signing.identity, 200) || !a.signing.identity.startsWith('Developer ID Application: ') || !a.signing.identity.endsWith(`(${a.signing.teamId})`) || a.signing.notarized !== true) fail(ap, 'a Developer ID Application identity and notarization are required');
     });
   });

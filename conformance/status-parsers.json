@@ -1,0 +1,129 @@
+{
+  "description": "Provider CLI output to tunnel state. Only the discriminant is kept. See README.md.",
+  "mullvad": {
+    "providerVersion": "2026.4",
+    "cases": [
+      {
+        "text": "{\"state\": \"connected\", \"details\": {\"ip\": \"sensitive\", \"account\": \"secret\"}}",
+        "tunnel": "connected"
+      },
+      {
+        "text": "{\"state\": \"connecting\", \"details\": {\"ip\": \"sensitive\", \"account\": \"secret\"}}",
+        "tunnel": "connecting"
+      },
+      {
+        "text": "{\"state\": \"disconnected\", \"details\": {\"ip\": \"sensitive\", \"account\": \"secret\"}}",
+        "tunnel": "disconnected"
+      },
+      {
+        "text": "{\"state\": \"disconnecting\", \"details\": {\"ip\": \"sensitive\", \"account\": \"secret\"}}",
+        "tunnel": "disconnecting"
+      },
+      {
+        "text": "{\"state\": \"error\", \"details\": {\"ip\": \"sensitive\", \"account\": \"secret\"}}",
+        "tunnel": "error"
+      },
+      {
+        "text": "connected",
+        "error": "unrecognizedStatus"
+      },
+      {
+        "text": "[]",
+        "error": "unrecognizedStatus"
+      },
+      {
+        "text": "{}",
+        "error": "unrecognizedStatus"
+      },
+      {
+        "text": "{\"state\":true}",
+        "error": "unrecognizedStatus"
+      },
+      {
+        "text": "{\"state\":\"new_state\"}",
+        "error": "unrecognizedStatus"
+      },
+      {
+        "text": "Warning\n{\"state\":\"connected\"}",
+        "error": "unrecognizedStatus"
+      },
+      {
+        "text": "{\"state\":\"CONNECTED\"}",
+        "error": "unrecognizedStatus"
+      },
+      {
+        "text": "",
+        "error": "unrecognizedStatus"
+      }
+    ]
+  },
+  "ivpn": {
+    "providerVersion": "3.15.15",
+    "cases": [
+      {
+        "text": "VPN : CONNECTED\nServer : secret\n",
+        "tunnel": "connected"
+      },
+      {
+        "text": "VPN : CONNECTED\nWARNING! Unhealthy Connection\n",
+        "tunnel": "error"
+      },
+      {
+        "text": "VPN : DISCONNECTED\n",
+        "tunnel": "disconnected"
+      },
+      {
+        "text": "Account ID : i-XXXX\nVPN : CONNECTING\n",
+        "tunnel": "connecting"
+      },
+      {
+        "text": "VPN : RECONNECTING\n",
+        "tunnel": "connecting"
+      },
+      {
+        "text": "VPN : WAIT\n",
+        "tunnel": "connecting"
+      },
+      {
+        "text": "VPN : EXITING\n",
+        "tunnel": "disconnecting"
+      },
+      {
+        "text": "VPN : PAUSED\n",
+        "tunnel": "error"
+      },
+      {
+        "text": "VPN : PAUSED till 10:00\n",
+        "tunnel": "error"
+      },
+      {
+        "text": "VPN:DISCONNECTED",
+        "tunnel": "disconnected"
+      },
+      {
+        "text": "  VPN : CONNECTED\n",
+        "error": "unrecognizedStatus"
+      },
+      {
+        "text": "VPN : CONNECTED\nVPN : DISCONNECTED\n",
+        "error": "unrecognizedStatus"
+      },
+      {
+        "text": "VPN : SOMETHING_NEW\n",
+        "error": "unrecognizedStatus"
+      },
+      {
+        "text": "VPNX : CONNECTED\n",
+        "error": "unrecognizedStatus"
+      },
+      {
+        "text": "",
+        "error": "unrecognizedStatus"
+      },
+      {
+        "text": "connected",
+        "error": "unrecognizedStatus"
+      }
+    ]
+  }
+}

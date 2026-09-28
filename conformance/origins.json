@@ -1,0 +1,45 @@
+{
+  "description": "argv[1] origin check against one allowed extension id. See README.md.",
+  "allowedId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "accept": [
+    "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/"
+  ],
+  "reject": [
+    "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/page",
+    "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.evil/",
+    "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/?x=1",
+    "CHROME-EXTENSION://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/",
+    "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/",
+    "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaq/",
+    "chrome-extension://*/",
+    "https://app.hyperliquid.xyz",
+    "",
+    " chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/",
+    "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/\n"
+  ],
+  "rejectWithIds": [
+    {
+      "origin": "chrome-extension://*/",
+      "ids": [
+        "*"
+      ]
+    },
+    {
+      "origin": "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/",
+      "ids": []
+    },
+    {
+      "origin": "chrome-extension://AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/",
+      "ids": [
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      ]
+    },
+    {
+      "origin": "chrome-extension://zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz/",
+      "ids": [
+        "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
+      ]
+    }
+  ]
+}

@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { importApk } from './android.mjs';
 import { packageHelper } from './helper.mjs';
+import { packageLinux } from './linux.mjs';
 import { assertCatalog } from './catalog.mjs';
 import { checksumText, invariant, jsonBytes, loadVerifiedCatalog, parseArgs, required, verifyArtifacts, writeNew } from './lib.mjs';
 import { createPublicArtifactVerifier, createR2Transport, publishPlan, publishVerified } from './publish.mjs';
@@ -20,6 +21,12 @@ package-helper --app PATH --version VERSION --build-id ID --out DIR
   --notary-profile KEYCHAIN_PROFILE --released-at UTC --channel stable
   --metadata-private-key FILE [--metadata-public-key FILE]
   Signed packaging also verifies artifacts and signs inactive metadata in OUT/metadata.
+package-linux --folder PATH --version VERSION --build-id ID --out DIR
+  [--channel test]  (local test archive only)
+  Stable packaging requires --channel stable --released-at UTC and signs inactive
+  metadata with --metadata-private-key FILE [--metadata-public-key FILE].
+  PATH is a folder staged by scripts/build-linux.mjs. Linux artifacts carry no OS
+  signature; the signed catalog's SHA-256 is their authenticity.
 catalog --release FILE --artifacts DIR --out FILE [--publish]
   [--previous FILE --previous-signature FILE --public-key FILE]
 withdraw --catalog FILE --signature FILE --public-key FILE --product PRODUCT
@@ -52,6 +59,14 @@ export async function main(argv) {
     invariant(args['execute-signing'] || (!args['metadata-private-key'] && !args['metadata-public-key']), 'Metadata signing requires a signed, notarized helper');
     const signer = args['execute-signing'] ? await prepareMetadataSigner({ privateKey: required(args, 'metadata-private-key'), publicKey: args['metadata-public-key'] }) : null;
     const result = await packageHelper({ app: required(args, 'app'), version: required(args, 'version'), buildId: required(args, 'build-id'), releasedAt: args['released-at'], out: required(args, 'out'), channel: args.channel, identity: args.identity, teamId: args['team-id'], notaryProfile: args['notary-profile'], executeSigning: !!args['execute-signing'], notes: await notesFrom(args) });
+    const metadata = signer ? await signMetadataBundle({ bytes: jsonBytes({ schemaVersion: 1, releases: [result] }), artifacts: args.out, out: join(args.out, 'metadata'), signer }) : null;
+    console.log(JSON.stringify({ packaged: true, publicCatalogEligible: result.publishable !== false, filename: result.filename ?? result.artifacts[0].filename, metadata }));
+  } else if (command === 'package-linux') {
+    const args = parseArgs(tail, { values: ['folder', 'version', 'build-id', 'released-at', 'out', 'channel', 'notes', 'metadata-private-key', 'metadata-public-key'] });
+    const stable = args.channel === 'stable';
+    invariant(stable || (!args['metadata-private-key'] && !args['metadata-public-key']), 'Metadata signing is only for stable packages');
+    const signer = stable ? await prepareMetadataSigner({ privateKey: required(args, 'metadata-private-key'), publicKey: args['metadata-public-key'] }) : null;
+    const result = await packageLinux({ folder: required(args, 'folder'), version: required(args, 'version'), buildId: required(args, 'build-id'), releasedAt: stable ? required(args, 'released-at') : args['released-at'], out: required(args, 'out'), channel: args.channel, notes: await notesFrom(args) });
     const metadata = signer ? await signMetadataBundle({ bytes: jsonBytes({ schemaVersion: 1, releases: [result] }), artifacts: args.out, out: join(args.out, 'metadata'), signer }) : null;
     console.log(JSON.stringify({ packaged: true, publicCatalogEligible: result.publishable !== false, filename: result.filename ?? result.artifacts[0].filename, metadata }));
   } else if (command === 'catalog') {

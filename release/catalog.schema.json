@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://anon.inc/contracts/releases/v1",
   "title": "Anon release catalog v1",
-  "description": "Structural contract. catalog.mjs additionally enforces immutable path equality, distinct identities, actual UTC timestamps, product-specific signing, and desktop unavailability. Validation alone does not authenticate a release: verify the detached signature first.",
+  "description": "Structural contract. catalog.mjs additionally enforces immutable path equality, distinct identities, actual UTC timestamps, product- and platform-specific signing, and desktop unavailability. Validation alone does not authenticate a release: verify the detached signature first.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "releases"],
@@ -36,7 +36,11 @@
       "allOf": [
         { "if": { "properties": { "status": { "const": "published" } } }, "then": { "properties": { "artifacts": { "minItems": 1 } } } },
         { "if": { "properties": { "product": { "const": "desktop" } } }, "then": { "properties": { "status": { "const": "unreleased" } } } },
-        { "if": { "properties": { "product": { "const": "android" } } }, "then": { "properties": { "artifacts": { "items": { "properties": { "platform": { "const": "android" }, "signing": { "$ref": "#/$defs/androidSigning" }, "filename": { "pattern": "\\.apk$" } } } } } }, "else": { "properties": { "artifacts": { "items": { "properties": { "platform": { "const": "macos" }, "signing": { "$ref": "#/$defs/appleSigning" }, "filename": { "pattern": "\\.zip$" } } } } } } }
+        { "if": { "properties": { "product": { "const": "android" } } }, "then": { "properties": { "artifacts": { "items": { "properties": { "platform": { "const": "android" }, "signing": { "$ref": "#/$defs/androidSigning" }, "filename": { "pattern": "\\.apk$" } } } } } }, "else": { "properties": { "artifacts": { "items": { "oneOf": [
+          { "properties": { "platform": { "const": "macos" }, "signing": { "$ref": "#/$defs/appleSigning" }, "filename": { "pattern": "\\.zip$" } } },
+          { "properties": { "platform": { "const": "linux" }, "signing": { "$ref": "#/$defs/catalogSigning" }, "filename": { "pattern": "\\.tar\\.gz$" }, "architecture": { "enum": ["arm64", "x86_64"] } } }
+        ] } } } } },
+        { "if": { "properties": { "product": { "const": "network-helper" } } }, "else": { "properties": { "artifacts": { "items": { "properties": { "platform": { "not": { "const": "linux" } } } } } } } }
       ]
     },
     "artifact": {
@@ -47,19 +51,24 @@
         { "if": { "properties": { "platform": { "const": "android" } } }, "then": { "properties": { "location": { "pattern": "^https://(release|downloads)\\.anon\\.inc/android/" } } } }
       ],
       "properties": {
-        "platform": { "enum": ["android", "macos"] },
+        "platform": { "enum": ["android", "macos", "linux"] },
         "architecture": { "enum": ["universal", "arm64", "x86_64", "arm64-x86_64"] },
         "minimumOs": { "type": "string", "minLength": 1, "maxLength": 80, "pattern": "^[^\\u0000-\\u001f\\u007f]+$" },
         "filename": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$", "not": { "pattern": "\\.\\." } },
         "bytes": { "type": "integer", "minimum": 1, "maximum": 536870912 },
         "sha256": { "$ref": "#/$defs/sha256" },
-        "signing": { "oneOf": [{ "$ref": "#/$defs/androidSigning" }, { "$ref": "#/$defs/appleSigning" }] },
+        "signing": { "oneOf": [{ "$ref": "#/$defs/androidSigning" }, { "$ref": "#/$defs/appleSigning" }, { "$ref": "#/$defs/catalogSigning" }] },
         "location": { "type": "string", "pattern": "^https://((release|downloads)\\.anon\\.inc/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+|github\\.com/anondotinc/network-guard/releases/download/v[A-Za-z0-9._-]+)/[A-Za-z0-9._-]+$" }
       }
     },
     "androidSigning": {
       "type": "object", "additionalProperties": false, "required": ["kind", "certificateSha256", "packageName"],
       "properties": { "kind": { "const": "android" }, "certificateSha256": { "$ref": "#/$defs/sha256" }, "packageName": { "const": "com.ahloop.anon" } }
+    },
+    "catalogSigning": {
+      "description": "No OS signature exists for the artifact. Its authenticity is the detached signature over this catalog, which pins the SHA-256.",
+      "type": "object", "additionalProperties": false, "required": ["kind"],
+      "properties": { "kind": { "const": "catalog-sha256" } }
     },
     "appleSigning": {
       "type": "object", "additionalProperties": false, "required": ["kind", "teamId", "identity", "notarized"],

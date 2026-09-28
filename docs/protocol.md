@@ -21,7 +21,8 @@ allowlisted error code. Older versions may omit the ID when parsing fails.
 | 3 | `v,id,method,provider` | `probe`, `status`, `connectSelected`, `openApp` |
 | 4 | `v,id,method` | `describe` only |
 | 5 | `v,id,method,provider` | `probe`, `openApp` (Proton VPN only) |
-| 6 | `v,id,method,provider` | `status` (Proton VPN only) |
+| 6 | `v,id,method,provider` | `status` (Proton VPN only, macOS) |
+| 8 | `v,id,method` | `describe` with platform and per-provider capabilities |
 
 v1 capabilities remain `read-status, read-only-prototype`. v2 capabilities remain
 `connect-selected, development-control-pilot`; this historical string is unchanged
@@ -137,3 +138,24 @@ Errors: `invalidRequest`, `unsupportedVersion`, `unsupportedMethod`, `invalidFra
 `providerUnavailable`, `providerTimeout`, `oversizedOutput`, `unrecognizedStatus`,
 `controlBusy`, `providerConflict`. No account, IP, subprocess output, or exception
 message is included. See `CONTRACTS.md` for the frozen cross-repository interface.
+
+### Platform discovery v8
+
+Clients send v8 `describe` first. Old helpers reply `{"v":1,"ok":false,"error":"unsupportedVersion"}`
+(no id, because the legacy parser rejects the version before accepting the
+request); send v4 `describe` on the same port in that case. v8 is static and
+provider-free, like v4.
+
+```json
+{"v":8,"id":"00000000-0000-4000-8000-000000000001","method":"describe"}
+```
+
+```json
+{"v":8,"id":"00000000-0000-4000-8000-000000000001","ok":true,"helper":{"arch":"arm64","build":7,"channel":"production","platform":"macos","protocols":[1,2,3,4,5,6,8],"providers":{"ivpn":["read-status","connect-selected"],"mullvad":["read-status","connect-selected"],"nordvpn":["open-app"],"protonvpn":["open-app","read-status"]},"version":"0.1.4"}}
+```
+
+`providers` is the capability map for this platform. Use it instead of inferring
+support from the version: Linux has no Proton status, so a Linux helper omits
+protocol 6 and answers v6 `status` with `unsupportedMethod`. The legacy `probe`
+reply keeps its fixed per-provider list for compatibility.
+

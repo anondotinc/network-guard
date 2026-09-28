@@ -1,4 +1,5 @@
 .build/
+rust/target/
 dist/
 .DS_Store
 *.xcuserstate
