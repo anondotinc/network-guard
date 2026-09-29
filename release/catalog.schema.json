@@ -38,9 +38,10 @@
         { "if": { "properties": { "product": { "const": "desktop" } } }, "then": { "properties": { "status": { "const": "unreleased" } } } },
         { "if": { "properties": { "product": { "const": "android" } } }, "then": { "properties": { "artifacts": { "items": { "properties": { "platform": { "const": "android" }, "signing": { "$ref": "#/$defs/androidSigning" }, "filename": { "pattern": "\\.apk$" } } } } } }, "else": { "properties": { "artifacts": { "items": { "oneOf": [
           { "properties": { "platform": { "const": "macos" }, "signing": { "$ref": "#/$defs/appleSigning" }, "filename": { "pattern": "\\.zip$" } } },
-          { "properties": { "platform": { "const": "linux" }, "signing": { "$ref": "#/$defs/catalogSigning" }, "filename": { "pattern": "\\.tar\\.gz$" }, "architecture": { "enum": ["arm64", "x86_64"] } } }
+          { "properties": { "platform": { "const": "linux" }, "signing": { "$ref": "#/$defs/catalogSigning" }, "filename": { "pattern": "\\.tar\\.gz$" }, "architecture": { "enum": ["arm64", "x86_64"] } } },
+          { "properties": { "platform": { "const": "windows" }, "signing": { "$ref": "#/$defs/authenticodeSigning" }, "filename": { "pattern": "\\.zip$" }, "architecture": { "enum": ["arm64", "x86_64"] } } }
         ] } } } } },
-        { "if": { "properties": { "product": { "const": "network-helper" } } }, "else": { "properties": { "artifacts": { "items": { "properties": { "platform": { "not": { "const": "linux" } } } } } } } }
+        { "if": { "properties": { "product": { "const": "network-helper" } } }, "else": { "properties": { "artifacts": { "items": { "properties": { "platform": { "not": { "enum": ["linux", "windows"] } } } } } } } }
       ]
     },
     "artifact": {
@@ -51,19 +52,24 @@
         { "if": { "properties": { "platform": { "const": "android" } } }, "then": { "properties": { "location": { "pattern": "^https://(release|downloads)\\.anon\\.inc/android/" } } } }
       ],
       "properties": {
-        "platform": { "enum": ["android", "macos", "linux"] },
+        "platform": { "enum": ["android", "macos", "linux", "windows"] },
         "architecture": { "enum": ["universal", "arm64", "x86_64", "arm64-x86_64"] },
         "minimumOs": { "type": "string", "minLength": 1, "maxLength": 80, "pattern": "^[^\\u0000-\\u001f\\u007f]+$" },
         "filename": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$", "not": { "pattern": "\\.\\." } },
         "bytes": { "type": "integer", "minimum": 1, "maximum": 536870912 },
         "sha256": { "$ref": "#/$defs/sha256" },
-        "signing": { "oneOf": [{ "$ref": "#/$defs/androidSigning" }, { "$ref": "#/$defs/appleSigning" }, { "$ref": "#/$defs/catalogSigning" }] },
+        "signing": { "oneOf": [{ "$ref": "#/$defs/androidSigning" }, { "$ref": "#/$defs/appleSigning" }, { "$ref": "#/$defs/catalogSigning" }, { "$ref": "#/$defs/authenticodeSigning" }] },
         "location": { "type": "string", "pattern": "^https://((release|downloads)\\.anon\\.inc/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+|github\\.com/anondotinc/network-guard/releases/download/v[A-Za-z0-9._-]+)/[A-Za-z0-9._-]+$" }
       }
     },
     "androidSigning": {
       "type": "object", "additionalProperties": false, "required": ["kind", "certificateSha256", "packageName"],
       "properties": { "kind": { "const": "android" }, "certificateSha256": { "$ref": "#/$defs/sha256" }, "packageName": { "const": "com.ahloop.anon" } }
+    },
+    "authenticodeSigning": {
+      "description": "Both executables carry a timestamped Authenticode signature whose leaf subject common name is `subject`.",
+      "type": "object", "additionalProperties": false, "required": ["kind", "subject", "timestamped"],
+      "properties": { "kind": { "const": "authenticode" }, "subject": { "type": "string", "minLength": 1, "maxLength": 200, "pattern": "^[^\\u0000-\\u001f\\u007f]+$" }, "timestamped": { "const": true } }
     },
     "catalogSigning": {
       "description": "No OS signature exists for the artifact. Its authenticity is the detached signature over this catalog, which pins the SHA-256.",

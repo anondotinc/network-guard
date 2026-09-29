@@ -1,5 +1,5 @@
-//! The only way the helper runs another program. Paths and arguments are
-//! compile-time constants chosen by an adapter, never taken from a request.
+//! POSIX runner: no shell, process group per child, SIGKILL on the group.
+use super::Limits;
 use crate::error::{HelperError, Result};
 use std::ffi::OsString;
 use std::io::{ErrorKind, Read};
@@ -7,14 +7,6 @@ use std::os::fd::AsRawFd;
 use std::os::unix::process::CommandExt;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
-
-#[derive(Clone, Copy)]
-pub struct Limits {
-    pub timeout: Duration,
-    pub output: usize,
-}
-
-pub const DEFAULT: Limits = Limits { timeout: Duration::from_secs(3), output: 65536 };
 
 /// Runs a program with no shell, a fixed environment, stdin from /dev/null and
 /// stderr discarded. Returns stdout only when it exits 0 within the deadline and
@@ -148,6 +140,7 @@ pub fn launch_detached(path: &str, args: &[&str]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::process::DEFAULT;
 
     fn limits(timeout_ms: u64, output: usize) -> Limits {
         Limits { timeout: Duration::from_millis(timeout_ms), output }

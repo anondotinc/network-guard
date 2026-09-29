@@ -117,8 +117,8 @@ Root: `{schemaVersion:1,releases:[]}`. A release has exactly `product`, `version
 `android`, `network-helper`, `desktop`. Channels: `test`, `stable`. Status:
 `unreleased`, `published`, `withdrawn`. Desktop is not an available product here.
 
-Artifacts contain `platform` (`android`, `macos`, or helper-only `linux`), `architecture` (`universal`,
-`arm64`, `x86_64`, Android-only `arm64-x86_64`; Linux is `arm64` or `x86_64` only), `minimumOs`, `filename`, `bytes` (positive integer), `sha256`
+Artifacts contain `platform` (`android`, `macos`, or helper-only `linux` and `windows`), `architecture` (`universal`,
+`arm64`, `x86_64`, Android-only `arm64-x86_64`; Linux and Windows are `arm64` or `x86_64` only), `minimumOs`, `filename`, `bytes` (positive integer), `sha256`
 (64 lowercase hex), `signing` (structured product-specific signing identity), and
 `location` (HTTPS download URL). APK catalog URLs are confined to
 `https://downloads.anon.inc/` for new imports. Any previously signed
@@ -139,7 +139,9 @@ packageName:<verified package>}`. For the macOS helper: `{kind:"apple-developer-
 teamId:<verified team>,identity:<verified certificate identity>,notarized:true}`.
 For the Linux helper (`.tar.gz`): exactly `{kind:"catalog-sha256"}`. Linux has no
 OS signature for the tarball; its authenticity is the detached catalog signature,
-which pins the SHA-256. Consumers that copy `catalog.mjs` (the site's
+which pins the SHA-256. For the Windows helper (`.zip`): exactly
+`{kind:"authenticode",subject:<leaf certificate common name>,timestamped:true}`;
+packaging verifies both executables' signatures and that subject. Consumers that copy `catalog.mjs` (the site's
 `src/lib/releases/vendor/catalog.mjs`) must take this version before a catalog
 containing a Linux artifact is imported, and must not render Linux artifacts as
 macOS downloads.

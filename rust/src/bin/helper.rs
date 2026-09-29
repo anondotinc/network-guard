@@ -4,18 +4,21 @@ use network_guard::{build_info, frames, manifest, origin};
 use std::io::Write;
 use std::process::ExitCode;
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 fn respond(payload: &[u8]) -> Vec<u8> {
+    #[cfg(target_os = "linux")]
     use network_guard::platform::linux::{adapters::Live, lock};
+    #[cfg(windows)]
+    use network_guard::platform::windows::{adapters::Live, lock};
     use network_guard::router::Router;
     let live = Live::new();
     Router { adapters: &live, legacy_control: &live, control_enabled: build_info::SUPPORTS_CONNECTION_CONTROL, lock: lock::connection }
         .respond(payload)
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", windows)))]
 fn respond(_: &[u8]) -> Vec<u8> {
-    unimplemented!("Network Guard for this platform ships from the Swift package or a later packet")
+    unimplemented!("macOS ships the Swift helper")
 }
 
 fn fail(message: &str, code: u8) -> ExitCode {

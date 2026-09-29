@@ -53,8 +53,9 @@ export function validateCatalog(catalog) {
       const ap = `${p}.artifacts[${j}]`;
       if (!exact(a, ['platform', 'architecture', 'minimumOs', 'filename', 'bytes', 'sha256', 'signing', 'location'])) { fail(ap, 'unexpected or missing fields'); return; }
       const linux = a.platform === 'linux';
-      if (!['android', 'macos', 'linux'].includes(a.platform) || (r.product === 'android') !== (a.platform === 'android') || (linux && r.product !== 'network-helper')) fail(ap, 'platform does not match product');
-      if (!(linux ? ['arm64', 'x86_64'] : ['universal', 'arm64', 'x86_64', ...(r.product === 'android' ? ['arm64-x86_64'] : [])]).includes(a.architecture)) fail(ap, 'unsupported architecture');
+      const windows = a.platform === 'windows';
+      if (!['android', 'macos', 'linux', 'windows'].includes(a.platform) || (r.product === 'android') !== (a.platform === 'android') || ((linux || windows) && r.product !== 'network-helper')) fail(ap, 'platform does not match product');
+      if (!(linux || windows ? ['arm64', 'x86_64'] : ['universal', 'arm64', 'x86_64', ...(r.product === 'android' ? ['arm64-x86_64'] : [])]).includes(a.architecture)) fail(ap, 'unsupported architecture');
       if (architectures.has(`${a.platform}/${a.architecture}`)) fail(ap, 'duplicate architecture');
       architectures.add(`${a.platform}/${a.architecture}`);
       if (!text(a.minimumOs, 80)) fail(ap, 'invalid minimumOs');
@@ -67,6 +68,9 @@ export function validateCatalog(catalog) {
       locations.add(a.location);
       if (r.product === 'android') {
         if (!exact(a.signing, ['kind', 'certificateSha256', 'packageName']) || a.signing.kind !== 'android' || !hex.test(a.signing.certificateSha256) || a.signing.packageName !== 'com.ahloop.anon') fail(ap, 'invalid verified Android identity');
+      } else if (windows) {
+        // Both executables carry a timestamped Authenticode signature from this publisher.
+        if (!exact(a.signing, ['kind', 'subject', 'timestamped']) || a.signing.kind !== 'authenticode' || !text(a.signing.subject, 200) || a.signing.timestamped !== true) fail(ap, 'Windows artifacts require a timestamped Authenticode publisher');
       } else if (linux) {
         // Linux has no OS signature for this tarball. Authenticity is the signed
         // catalog pinning this SHA-256; the kind states that explicitly.

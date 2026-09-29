@@ -90,3 +90,52 @@ jobs:
           node release/cli.mjs package-linux --folder dist/linux/production/anon-network-guard-"$version"-linux-* --version "$version" --build-id "$build" --out dist/linux/package
       - name: Verify tracked source is unchanged
         run: git diff --exit-code
+
+  windows:
+    name: Windows helper (${{ matrix.runner }})
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [windows-2025, windows-11-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Rust toolchain
+        shell: bash
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy,rustfmt
+          rustup target add x86_64-pc-windows-msvc aarch64-pc-windows-msvc
+      - name: Rust unit, installer (scratch HKCU keys) and shared wire tests
+        working-directory: rust
+        shell: bash
+        run: |
+          cargo fmt --check
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo test --locked
+          cargo test --locked --features development
+      - name: Builds with wire checks and a per-user install, check and uninstall
+        env:
+          NETWORK_GUARD_SETUP_SMOKE: '1'
+        run: |
+          node scripts/build-windows.mjs --channel production
+          node scripts/build-windows.mjs --channel development
+      - name: Windows release packaging
+        shell: bash
+        run: |
+          node --test release/tests/windows.test.mjs
+          version=$(node --input-type=module -e "import { buildVersion } from './scripts/version.mjs'; console.log(buildVersion.version)")
+          build=$(node --input-type=module -e "import { buildVersion } from './scripts/version.mjs'; console.log(buildVersion.build)")
+          node release/cli.mjs package-windows --folder dist/windows/production/anon-network-guard-"$version"-windows-* --version "$version" --build-id "$build" --out dist/windows/package
+      - name: Verify tracked source is unchanged
+        shell: bash
+        run: git diff --exit-code
+

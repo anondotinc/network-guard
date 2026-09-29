@@ -61,6 +61,15 @@ the package manager; it does not detect a root compromise. Setup is per-user,
 never asks for root, and keeps its locks in `$XDG_RUNTIME_DIR`. Flatpak and Snap
 browsers cannot start the helper. Details: [Linux](docs/linux.md).
 
+## Windows
+
+The Windows helper (in `rust/`, not yet released) trusts a provider program only
+under Program Files, with no reparse points, admin-only ownership and write
+access, a valid Authenticode signature (verified without network access) from a
+pinned publisher, and a pinned file version for status and connect. Setup is
+per-user under `%LOCALAPPDATA%` and HKCU and never needs administrator rights.
+Details: [Windows](docs/windows.md).
+
 ## What is not guaranteed
 
 A provider's connected state does not prove this Chrome profile routes through it.

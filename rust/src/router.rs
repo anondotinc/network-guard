@@ -6,11 +6,13 @@ use crate::error::{HelperError, Result};
 use crate::provider::{Adapters, LegacyControl, Provider};
 use crate::wire::{self, envelope, failure, response, strings};
 use serde_json::{Map, Value};
-use std::fs::File;
+
+/// Held for the duration of a connection attempt; released on drop.
+pub type LockGuard = Box<dyn std::any::Any>;
 
 /// Serializes connection attempts across Chrome surfaces and worker restarts.
-/// The returned file holds the lock until dropped; `None` in tests.
-pub type Lock = fn() -> Result<Option<File>>;
+/// `None` in tests.
+pub type Lock = fn() -> Result<Option<LockGuard>>;
 
 pub struct Router<'a> {
     pub adapters: &'a dyn Adapters,

@@ -16,8 +16,18 @@
 - Release catalog: `linux` helper artifacts (`.tar.gz`, `arm64`/`x86_64`) with
   `signing: {kind: "catalog-sha256"}`. `release/cli.mjs package-linux` builds a
   byte-reproducible archive from a staged folder.
-- CI builds and tests the Linux helper on x86_64 and arm64 runners, and runs the
-  shared fixtures against the Rust helper on macOS.
+- Add the Windows helper and setup program (x86_64, arm64; static C runtime).
+  Provider apps must sit under Program Files with admin-only permissions, carry a
+  valid Authenticode signature from a pinned publisher, and match a pinned file
+  version for status/connect. Setup is per-user: one host manifest under
+  `%LOCALAPPDATA%` and HKCU keys for Chrome, Edge, Brave and Chromium. See
+  [Windows](docs/windows.md).
+- Release catalog: `windows` helper artifacts (`.zip`) with
+  `signing: {kind: "authenticode", subject, timestamped: true}`.
+  `package-windows` verifies both executables with osslsigncode; it never signs.
+- CI builds and tests the Linux helper on x86_64 and arm64, the Windows helper on
+  x64 and arm64 runners (including a real per-user install), and runs the shared
+  fixtures against the Rust helper on macOS.
 
 This source candidate is not a signed or published release.
 

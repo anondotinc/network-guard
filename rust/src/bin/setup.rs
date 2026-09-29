@@ -3,7 +3,7 @@
 use network_guard::build_info;
 use std::process::ExitCode;
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 fn run(command: &str) -> Result<String, String> {
     use network_guard::setup::{Installer, Payload, State, BROWSERS};
     let names = |ids: &[&str]| -> String {
@@ -18,7 +18,7 @@ fn run(command: &str) -> Result<String, String> {
                 .and_then(|path| path.parent().map(|p| p.to_path_buf()))
                 .ok_or("Setup could not find its own folder.")?;
             let payload = Payload::load(&folder).map_err(|e| e.message().to_string())?;
-            let browsers = installer.install(&payload, &folder.join("anon-network-helper")).map_err(|e| e.message().to_string())?;
+            let browsers = installer.install(&payload, &folder.join(network_guard::setup::HELPER)).map_err(|e| e.message().to_string())?;
             Ok(format!(
                 "Installed Network Guard {} for {}.\nNext: open Anon, go to Settings → Connection privacy, allow local access, then verify Network Guard.\nInstalling does not connect a VPN or grant browser permission.",
                 payload.version,
@@ -38,14 +38,29 @@ fn run(command: &str) -> Result<String, String> {
     }
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", windows)))]
 fn run(_: &str) -> Result<String, String> {
-    Err("This setup program is for Linux.".into())
+    Err("This setup program is for Linux and Windows. macOS uses Anon Network Guard Setup.app.".into())
 }
 
 fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let [command] = args.as_slice() else {
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    // Double-clicking the .exe on Windows passes no arguments: install, then
+    // keep the window open so the result can be read.
+    let double_clicked = cfg!(windows) && args.is_empty();
+    if double_clicked {
+        args.push("install".into());
+    }
+    let code = run_command(&args);
+    if double_clicked {
+        println!("\nPress Enter to close.");
+        let _ = std::io::stdin().read_line(&mut String::new());
+    }
+    code
+}
+
+fn run_command(args: &[String]) -> ExitCode {
+    let [command] = args else {
         eprintln!("Usage: anon-network-guard-setup install | check | uninstall");
         return ExitCode::from(2);
     };

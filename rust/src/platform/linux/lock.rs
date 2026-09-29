@@ -56,7 +56,8 @@ pub fn exclusive<E: Copy>(directory: &str, name: &str, busy: E, unavailable: E) 
 }
 
 /// The router's connection lock. Released when the file closes.
-pub fn connection() -> Result<Option<File>> {
+pub fn connection() -> Result<Option<crate::router::LockGuard>> {
     let directory = runtime_dir()?;
-    exclusive(&directory, "inc.anon.network_helper.connect.lock", HelperError::ControlBusy, HelperError::ProviderUnavailable).map(Some)
+    exclusive(&directory, "inc.anon.network_helper.connect.lock", HelperError::ControlBusy, HelperError::ProviderUnavailable)
+        .map(|file| Some(Box::new(file) as crate::router::LockGuard))
 }

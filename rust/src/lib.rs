@@ -10,10 +10,10 @@ pub mod router;
 pub mod status;
 pub mod wire;
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub mod process;
 
 pub mod platform;
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 pub mod setup;

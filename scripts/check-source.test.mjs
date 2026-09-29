@@ -48,7 +48,8 @@ test('local documentation links are checked without contacting remote hosts', ()
 test('CI is pinned and read-only, with no installation or publication steps', () => {
   const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
   const actions = [...workflow.matchAll(/uses:\s+(\S+)/g)].map(match => match[1]);
-  assert.equal(actions.length, 2);
+  // Each job may check out and set up Node; nothing else, and always SHA-pinned.
+  assert.ok(actions.length >= 2 && actions.length % 2 === 0);
   for (const action of actions) assert.match(action, /^actions\/(?:checkout|setup-node)@[a-f0-9]{40}$/);
   assert.match(workflow, /permissions:\s*\n\s+contents: read/);
   assert.match(workflow, /persist-credentials: false/);
@@ -56,7 +57,10 @@ test('CI is pinned and read-only, with no installation or publication steps', ()
   assert.doesNotMatch(workflow, /pull_request_target|secrets\.|write-all|upload-artifact|native\.connect|notarytool/);
   for (const command of ['check-source.mjs', 'test-native.mjs -c release',
     'build-setup.mjs --channel production', 'build-setup.mjs --channel development',
-    'test-wire.mjs --channel production', 'test-wire.mjs --channel development']) {
+    'test-wire.mjs --channel production', 'test-wire.mjs --channel development',
+    'build-linux.mjs --channel production', 'build-linux.mjs --channel development',
+    'build-windows.mjs --channel production', 'build-windows.mjs --channel development',
+    'cargo test --locked', '-D warnings']) {
     assert.ok(workflow.includes(command), command);
   }
 });
