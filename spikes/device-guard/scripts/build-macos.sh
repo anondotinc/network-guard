@@ -1,10 +1,11 @@
 #!/bin/bash
-# Builds, bundles and signs the spike app. SIGN_IDENTITY="-" signs ad hoc.
-# Usage: scripts/build-macos.sh [out-dir]
+# Builds, bundles and signs the spike app. Set SIGN_IDENTITY to a "Developer ID Application: …"
+# identity for a distributable build; without it the bundle is signed ad hoc.
+# Usage: SIGN_IDENTITY="Developer ID Application: …" scripts/build-macos.sh [out-dir]
 set -euo pipefail
 cd "$(dirname "$0")/.."
 OUT="${1:-out}"
-IDENTITY="${SIGN_IDENTITY:-Developer ID Application: AHLOOP LLC (G4CUY3UK8U)}"
+IDENTITY="${SIGN_IDENTITY:--}"
 APP="$OUT/Anon Network Guard Spike.app"
 
 cargo build --release --quiet
