@@ -28,7 +28,7 @@ const profile = path.join(work, 'profile');
 const extDir = path.join(work, 'ext');
 
 const pwModule = process.env.PLAYWRIGHT_MODULE ?? 'playwright';
-const { chromium } = await import(pwModule.startsWith('/') ? pathToFileURL(path.join(pwModule, 'index.mjs')).href : pwModule);
+const { chromium } = await import(path.isAbsolute(pwModule) ? pathToFileURL(path.join(pwModule, 'index.mjs')).href : pwModule);
 
 // A pinned extension id from a fresh key: id = first 16 bytes of sha256(SPKI), hex mapped to a–p.
 const { publicKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
