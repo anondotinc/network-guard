@@ -1,7 +1,7 @@
 # Native protocols
 
-Development 0.1.4 also provides the separately negotiated [v7 RPC proxy](rpc-proxy.md).
-The local-only contracts and 4 KiB limits below apply to v1–v6, not v7 payloads.
+The local-only contracts and 4 KiB limits below apply to v1–v6 and v8. Version 7 is
+retired: it gets the same `unsupportedVersion` reply as any other unknown version.
 
 Transport: Chrome native messaging over stdin/stdout. Each JSON UTF-8 message is
 preceded by a four-byte little-endian length. Length must be 1–4096 bytes. There are

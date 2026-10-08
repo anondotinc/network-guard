@@ -9,10 +9,6 @@ separate consent, request a connection using your existing provider settings.
 The signed, notarized production installer is available from the
 [Network Guard setup page](https://anon.inc/setup/network-guard).
 
-Development builds also contain an opt-in [HTTP JSON-RPC SOCKS5 transport](docs/rpc-proxy.md)
-for extension testing. It handles RPC data, separately from VPN observation/control.
-It is not wallet-wide leak protection. Production builds do not expose it.
-
 Network Guard is not a VPN or a wallet. It stores no wallet keys or account data,
 has no HTTP server, background daemon, telemetry or automatic updater, and
 installs only for your macOS user without administrator privileges.

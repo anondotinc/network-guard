@@ -104,10 +104,6 @@ error and whether the reply carries the request id.
 
 ## Release catalog v1
 
-The opt-in development RPC transport is documented separately in
-[v7 RPC proxy](docs/rpc-proxy.md). Its negotiated payload frames and outbound
-network scope do not change existing VPN request or discovery schemas.
-
 Owner: `release/catalog.schema.json`. Consumers pin the schema and pure Node/ESM
 validator (`release/catalog.mjs`) and verify byte-for-byte contract parity in tests.
 

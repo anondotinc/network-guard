@@ -32,7 +32,7 @@
       }
     },
     {
-      "name": "development RPC handshake is not served by the router",
+      "name": "retired v7 handshake is answered by v1 as unsupported",
       "request": {
         "id": "01234567-89ab-4def-8123-456789abcdef",
         "method": "rpcCapabilities",

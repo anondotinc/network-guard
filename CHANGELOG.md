@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Remove the development-only v7 SOCKS5 RPC proxy (`rpcCapabilities`, `rpc`).
+  The helper no longer carries wallet RPC data in any build; private RPC moves to
+  anon-rpc in the wallet. A v7 request now gets the same
+  `{v:1,ok:false,error:"unsupportedVersion"}` reply as any other unknown version.
+  v1–v6 and v8 are unchanged. The `/usr/bin/curl` handoff and the `limit`
+  parameters on `NativeFrames` that only served v7 are gone with it.
 - Add v8 `describe`: platform, architecture, build and a per-provider capability
   map, because capabilities now differ by operating system. v1–v6 and the frozen
   v4 inventory are unchanged. The macOS router moved from `main.swift` into
