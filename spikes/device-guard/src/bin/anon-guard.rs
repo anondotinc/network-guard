@@ -154,6 +154,7 @@ fn respond(frame: &[u8], shared: &Shared, notify: &Notify) -> Value {
                 "uptimeMs": shared.started.elapsed().as_millis() as u64,
                 "requests": shared.requests.load(Ordering::Relaxed),
                 "connections": shared.connections.load(Ordering::Relaxed),
+                "job": guard_spike::job_info(),
             });
             #[cfg(target_os = "macos")]
             {

@@ -23,6 +23,9 @@ const shim = path.resolve(opt('--shim'));
 const appBin = path.resolve(opt('--app-bin'));
 const startCmd = opt('--start');
 const headless = args.includes('--headless');
+// Who started the app that is running when the browser closes: the shim (openGuard),
+// the harness, or nobody. Isolates a browser-close hang seen on Windows.
+const closeWith = opt('--close-with') ?? 'shim';
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'guard-spike-'));
 const profile = path.join(work, 'profile');
 const extDir = path.join(work, 'ext');
@@ -141,7 +144,7 @@ try {
   // 1. App running: one-shot messages (a shim per message) and a long-lived port.
   await stopApp();
   const started = await startApp();
-  record('appStart', started && { launchedBy: started.launchedBy, pid: started.pid });
+  record('appStart', started && { launchedBy: started.launchedBy, pid: started.pid, job: started.job });
   record('shimDescribe', await send({ op: 'shimDescribe', id: 0 }));
   const oneShot = [];
   for (let i = 0; i < 20; i++) oneShot.push(await send({ v: 1, id: i, method: 'status' }));
@@ -173,9 +176,17 @@ try {
 
   step('4 openGuard');
   // 4. A user's click: openGuard starts the app and answers once it is up.
-  const open = await send({ v: 1, id: 400, op: 'openGuard' });
-  const status = appStatus();
-  record('openGuard', { ok: open.reply?.ok === true, ms: +open.ms.toFixed(1), launchedBy: status?.launchedBy, reply: open.reply ?? open.err });
+  if (closeWith === 'shim') {
+    const open = await send({ v: 1, id: 400, op: 'openGuard' });
+    const status = appStatus();
+    record('openGuard', { ok: open.reply?.ok === true, ms: +open.ms.toFixed(1), launchedBy: status?.launchedBy, appJob: status?.job, reply: open.reply ?? open.err });
+  } else if (closeWith === 'harness') {
+    const status = await startApp();
+    record('openGuard', { skipped: true, appStartedBy: 'harness', launchedBy: status?.launchedBy, appJob: status?.job });
+  } else {
+    record('openGuard', { skipped: true, appStartedBy: 'nobody' });
+  }
+  record('closeWith', closeWith);
 
   step('5 browser close');
   // 5. The app keeps running after Chrome closes (it is not the shim's child).
@@ -183,7 +194,8 @@ try {
   record('browserClosedCleanly', await closeBrowser(context));
   record('browserCloseMs', Date.now() - t);
   await sleep(1500);
-  record('appSurvivesBrowserClose', appStatus()?.ok === true);
+  record('appSurvivesBrowserClose', closeWith === 'nobody' ? null : appStatus()?.ok === true);
+  if (closeWith === 'nobody') await startApp();
 } finally {
   await closeBrowser(context).catch(() => {});
 }

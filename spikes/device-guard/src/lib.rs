@@ -221,3 +221,56 @@ pub fn icon_rgba() -> (Vec<u8>, u32) {
     }
     (rgba, S)
 }
+
+/// Which Windows job object this process is in, and what that job allows. Chrome and CI
+/// runners both use jobs; whether the app can break away decides if it outlives the host.
+#[cfg(windows)]
+pub fn job_info() -> Value {
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetCurrentProcess() -> *mut core::ffi::c_void;
+        fn IsProcessInJob(process: *mut core::ffi::c_void, job: *mut core::ffi::c_void, result: *mut i32) -> i32;
+        fn QueryInformationJobObject(
+            job: *mut core::ffi::c_void,
+            class: u32,
+            info: *mut core::ffi::c_void,
+            len: u32,
+            ret: *mut u32,
+        ) -> i32;
+    }
+    const BASIC_LIMIT_INFORMATION: u32 = 2;
+    let mut in_job = 0i32;
+    if unsafe { IsProcessInJob(GetCurrentProcess(), core::ptr::null_mut(), &mut in_job) } == 0 {
+        return json!({ "error": "IsProcessInJob" });
+    }
+    if in_job == 0 {
+        return json!({ "inJob": false });
+    }
+    // JOBOBJECT_BASIC_LIMIT_INFORMATION; LimitFlags is the u32 after two i64 time limits.
+    let mut info = [0u64; 8];
+    let ok = unsafe {
+        QueryInformationJobObject(
+            core::ptr::null_mut(),
+            BASIC_LIMIT_INFORMATION,
+            info.as_mut_ptr().cast(),
+            core::mem::size_of_val(&info) as u32,
+            core::ptr::null_mut(),
+        )
+    };
+    if ok == 0 {
+        return json!({ "inJob": true, "error": "QueryInformationJobObject" });
+    }
+    let flags = info[2] as u32;
+    json!({
+        "inJob": true,
+        "limitFlags": format!("{flags:#x}"),
+        "breakawayOk": flags & 0x800 != 0,
+        "silentBreakawayOk": flags & 0x1000 != 0,
+        "killOnJobClose": flags & 0x2000 != 0,
+    })
+}
+
+#[cfg(not(windows))]
+pub fn job_info() -> Value {
+    Value::Null
+}

@@ -45,22 +45,31 @@ jobs:
           npm init -y >/dev/null
           npm install --no-audit --no-fund playwright@1.62.1
           npx playwright install chromium
-      - name: Native messaging end to end, app inherits the host's handles (old shim behaviour)
+      - name: Native messaging end to end, browser closes with app started by the shim (openGuard)
         timeout-minutes: 6
         continue-on-error: true
-        env:
-          ANON_GUARD_SPIKE_KEEP_INHERIT: '1'
-        run: |
-          bin="$(cygpath -w "$PWD/target/release")"
-          PLAYWRIGHT_MODULE="$RUNNER_TEMP/pw/node_modules/playwright" node test/native-e2e.mjs --headless \
-            --shim "$bin\\anon-guard-host.exe" --app-bin "$bin\\anon-guard.exe" \
-            --start "start \"\" \"$bin\\anon-guard.exe\""
-      - name: Native messaging end to end, host handles not inherited
-        timeout-minutes: 6
         run: |
           taskkill //F //IM anon-guard.exe 2>/dev/null || true
           bin="$(cygpath -w "$PWD/target/release")"
-          PLAYWRIGHT_MODULE="$RUNNER_TEMP/pw/node_modules/playwright" node test/native-e2e.mjs --headless \
+          PLAYWRIGHT_MODULE="$RUNNER_TEMP/pw/node_modules/playwright" node test/native-e2e.mjs --headless --close-with shim \
+            --shim "$bin\\anon-guard-host.exe" --app-bin "$bin\\anon-guard.exe" \
+            --start "start \"\" \"$bin\\anon-guard.exe\""
+      - name: Native messaging end to end, browser closes with app started by the harness
+        timeout-minutes: 6
+        continue-on-error: true
+        run: |
+          taskkill //F //IM anon-guard.exe 2>/dev/null || true
+          bin="$(cygpath -w "$PWD/target/release")"
+          PLAYWRIGHT_MODULE="$RUNNER_TEMP/pw/node_modules/playwright" node test/native-e2e.mjs --headless --close-with harness \
+            --shim "$bin\\anon-guard-host.exe" --app-bin "$bin\\anon-guard.exe" \
+            --start "start \"\" \"$bin\\anon-guard.exe\""
+      - name: Native messaging end to end, browser closes with no app running at close
+        timeout-minutes: 6
+        continue-on-error: true
+        run: |
+          taskkill //F //IM anon-guard.exe 2>/dev/null || true
+          bin="$(cygpath -w "$PWD/target/release")"
+          PLAYWRIGHT_MODULE="$RUNNER_TEMP/pw/node_modules/playwright" node test/native-e2e.mjs --headless --close-with nobody \
             --shim "$bin\\anon-guard-host.exe" --app-bin "$bin\\anon-guard.exe" \
             --start "start \"\" \"$bin\\anon-guard.exe\""
       - name: Start-at-login value round trip (per-user Run key)
@@ -68,6 +77,9 @@ jobs:
         run: |
           $exe = Join-Path (Resolve-Path target/release) 'anon-guard.exe'
           $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+          # A fresh profile may not have the Run key at all; the installer has to create it.
+          "Run key existed: $(Test-Path $key)"
+          if (-not (Test-Path $key)) { New-Item -Path $key | Out-Null }
           Set-ItemProperty -Path $key -Name 'AnonNetworkGuardSpike' -Value "`"$exe`" --launched-by=login"
           Get-ItemProperty -Path $key -Name 'AnonNetworkGuardSpike' | Format-List AnonNetworkGuardSpike
           Remove-ItemProperty -Path $key -Name 'AnonNetworkGuardSpike'

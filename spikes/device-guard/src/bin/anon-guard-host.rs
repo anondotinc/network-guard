@@ -39,7 +39,7 @@ fn handle(frame: &[u8], app: &mut Option<Stream>, origin: &str) -> Vec<u8> {
     if op == Some("shimDescribe") {
         // Answered by the shim, so a wallet can tell "app stopped" from "host missing".
         let running = app.is_some() || connect("shim", origin).is_ok();
-        let mut reply = json!({ "ok": true, "shim": VERSION, "ipc": IPC_VERSION, "appRunning": running });
+        let mut reply = json!({ "ok": true, "shim": VERSION, "ipc": IPC_VERSION, "appRunning": running, "job": guard_spike::job_info() });
         if let Some(id) = id {
             reply["id"] = id.clone();
         }
