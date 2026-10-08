@@ -126,12 +126,38 @@ The remaining harness checks pass in every setup:
 2. **Stock GNOME, Fedora and Debian have no indicator extension enabled.** There the app is a background process with no icon; the only way to quit is `anon-guard quit` or the wallet. This needs a product decision: either the wallet becomes the UI there, or setup offers to enable the extension.
 3. **The Linux build needs an old glibc base** to run on older distributions.
 
-## Windows
+## Results, Windows (GitHub Actions `windows-2025` x64 and `windows-11-arm`), 2026-10-08
 
-`.github/workflows/device-guard-spike.yml` runs the same harness on `windows-2025` and `windows-11-arm`. It writes the HKCU registration a per-user installer would write, and checks whether the app escapes Chrome's job object.
+`.github/workflows/device-guard-spike.yml` runs the same harness under headless Playwright Chromium. It writes the HKCU registration (`Software\Chromium\NativeMessagingHosts` and `Software\Google\Chrome\NativeMessagingHosts`) that a per-user, non-MSIX installer would write.
 
-The first two runs only exposed harness bugs, and the Rust build passed on both runners each time:
-- A `D:\` path was taken as a package name.
-- A `start`ed app inherited the harness's pipes, so the harness waited for it forever.
+| Check | x64 | Arm |
+| --- | --- | --- |
+| Chromium finds the per-user HKCU registration | yes | yes |
+| One-shot message (a fresh shim each time) | 20/20, p50 37–39 ms | 20/20, p50 68 ms |
+| Long-lived port | 50/50, p50 0.4 ms | 50/50, p50 0.6 ms |
+| App restarts under an open port | ok | ok |
+| App stopped → `appNotRunning`, not started | ~40 ms | ~67 ms |
+| `openGuard` starts the app | 85–102 ms | 124–135 ms |
+| Five copies at once (first pipe instance) | 1 serving | 1 serving |
+| Stale pipe after a kill | reclaimed | reclaimed |
+| Browser close after the shim started the app, launched without inherited handles | 0.39 s | 0.30 s |
+| The app outlives the browser | yes | yes |
+| Per-user `Run` value round trip | ok | ok |
 
-Results pending.
+Starting a process costs more on Windows: a one-shot message takes 40–70 ms, against 2–5 ms on macOS and Linux. That is still well inside the wallet's budgets. A long-lived port costs the same as elsewhere.
+
+### Findings for v1
+
+1. **The app must be launched with no inherited handles.** When the shim started the app through `std::process::Command`, closing the browser hung for 20 s on both runners. That happened even after the shim cleared the inherit flag on its three std handles, because Command inherits every inheritable handle. With `CreateProcessW` and `bInheritHandles = FALSE`, the browser closes in 0.3–0.4 s and the app keeps running.
+
+   | How the browser close was set up | Result |
+   | --- | --- |
+   | No app running | clean, 0.4–0.5 s |
+   | App started by the harness | clean, 0.4 s |
+   | App started by the shim, `std` Command | hangs, 20 s, both runners |
+   | App started by the shim, `CreateProcessW` without inheritance | clean, 0.3–0.4 s |
+
+2. **Breakaway from the job is refused, but it doesn't matter.** The shim, the app and the harness all report one job with limit flags `0x0`: no breakaway, no kill-on-close. That is the CI runner's job, not a job Chrome made. `CREATE_BREAKAWAY_FROM_JOB` fails, so the shim falls back to starting the app inside the job, and the app still outlives the browser. On a real desktop, where there is no runner job, check this once on a physical machine.
+3. **Create the Run key if it is missing.** One fresh `windows-2025` profile had no `HKCU\…\CurrentVersion\Run` key at all, while the others did. Open it with `RegCreateKeyExW` and never assume it exists.
+4. **The app must be a GUI-subsystem binary.** A console binary started from the Run key opens a console window at login. Use `#![windows_subsystem = "windows"]` for the app. The shim stays a console binary, because Chrome talks to it over stdio.
+5. **Lock down the named pipe.** The spike relies on interprocess's defaults: the first pipe instance plus `PIPE_REJECT_REMOTE_CLIENTS`. v1 should set an explicit DACL for the current user only, and check the client's user SID (the Windows twin of the macOS and Linux peer-UID check).
