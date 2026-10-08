@@ -83,6 +83,7 @@ const manifestPaths = [path.join(profile, 'NativeMessagingHosts'), ...opts('--nm
   return file;
 });
 
+const result = {};
 const registryKeys = [];
 if (process.platform === 'win32') {
   for (const vendor of ['Chromium', 'Google\\Chrome']) {
@@ -97,6 +98,16 @@ if (process.platform === 'win32') {
 // for the app itself to exit.
 const sh = (cmd) => spawnSync(cmd, { shell: true, stdio: 'ignore' });
 const step = (name) => process.stderr.write(`[e2e] ${name}\n`);
+// Every result is printed as it lands, so a later hang still leaves the data in the log.
+const record = (key, value) => { result[key] = value; process.stderr.write(`[e2e]   ${key} ${JSON.stringify(value)}\n`); };
+let browserOpen = true;
+async function closeBrowser(context) {
+  if (!browserOpen) return true;
+  const closed = await Promise.race([context.close().then(() => true), sleep(20000).then(() => false)]);
+  browserOpen = false;
+  if (!closed && process.platform === 'win32') spawnSync('taskkill', ['/F', '/T', '/IM', 'chrome.exe'], { stdio: 'ignore' });
+  return closed;
+}
 const appStatus = () => {
   const r = spawnSync(appBin, ['status'], { encoding: 'utf8' });
   try { return JSON.parse(r.stdout.trim()); } catch { return null; }
@@ -115,7 +126,7 @@ const stats = (xs) => {
   return { n: s.length, p50: q(0.5), p90: q(0.9), max: +s[s.length - 1].toFixed(1) };
 };
 
-const result = { platform: `${process.platform}-${process.arch}`, extId, manifestPaths, registryKeys, shim };
+Object.assign(result, { platform: `${process.platform}-${process.arch}`, extId, manifestPaths, registryKeys, shim });
 const context = await chromium.launchPersistentContext(profile, {
   channel: 'chromium', headless,
   args: [`--disable-extensions-except=${extDir}`, `--load-extension=${extDir}`],
@@ -130,22 +141,22 @@ try {
   // 1. App running: one-shot messages (a shim per message) and a long-lived port.
   await stopApp();
   const started = await startApp();
-  result.appStart = started && { launchedBy: started.launchedBy, pid: started.pid };
-  result.shimDescribe = (await send({ op: 'shimDescribe', id: 0 }));
+  record('appStart', started && { launchedBy: started.launchedBy, pid: started.pid });
+  record('shimDescribe', await send({ op: 'shimDescribe', id: 0 }));
   const oneShot = [];
   for (let i = 0; i < 20; i++) oneShot.push(await send({ v: 1, id: i, method: 'status' }));
-  result.oneShot = { ok: oneShot.filter((r) => r.reply?.ok).length, ...stats(oneShot.map((r) => r.ms)), sample: oneShot[0].reply ?? oneShot[0].err };
+  record('oneShot', { ok: oneShot.filter((r) => r.reply?.ok).length, ...stats(oneShot.map((r) => r.ms)), sample: oneShot[0].reply ?? oneShot[0].err });
   await page.evaluate(() => window.nm.open());
   const portRuns = [];
   for (let i = 0; i < 50; i++) portRuns.push(await page.evaluate((m) => window.nm.portSend(m), { v: 1, id: 100 + i, method: 'status' }));
-  result.port = { ok: portRuns.filter((r) => r.reply?.ok).length, ...stats(portRuns.map((r) => r.ms)) };
+  record('port', { ok: portRuns.filter((r) => r.reply?.ok).length, ...stats(portRuns.map((r) => r.ms)) });
 
   step('2 restart under port');
   // 2. The app restarts under an open port: the shim reconnects on the next message.
   await stopApp();
   await startApp();
   const afterRestart = await page.evaluate((m) => window.nm.portSend(m), { v: 1, id: 200, method: 'status' });
-  result.portAcrossRestart = { ok: afterRestart.reply?.ok === true, ms: +afterRestart.ms.toFixed(1), disconnected: await page.evaluate(() => window.nm.disconnected) };
+  record('portAcrossRestart', { ok: afterRestart.reply?.ok === true, ms: +afterRestart.ms.toFixed(1), disconnected: await page.evaluate(() => window.nm.disconnected) });
   await page.evaluate(() => window.nm.close());
 
   step('3 app stopped');
@@ -153,26 +164,28 @@ try {
   await stopApp();
   const notRunning = [];
   for (let i = 0; i < 5; i++) notRunning.push(await send({ v: 1, id: 300 + i, method: 'status' }));
-  result.appStopped = {
+  record('appStopped', {
     replies: [...new Set(notRunning.map((r) => r.reply?.error ?? r.err))],
     ...stats(notRunning.map((r) => r.ms)),
     appStartedAnyway: appStatus()?.ok === true,
-  };
-  result.shimDescribeStopped = (await send({ op: 'shimDescribe', id: 1 })).reply;
+  });
+  record('shimDescribeStopped', (await send({ op: 'shimDescribe', id: 1 })).reply);
 
   step('4 openGuard');
   // 4. A user's click: openGuard starts the app and answers once it is up.
   const open = await send({ v: 1, id: 400, op: 'openGuard' });
   const status = appStatus();
-  result.openGuard = { ok: open.reply?.ok === true, ms: +open.ms.toFixed(1), launchedBy: status?.launchedBy, reply: open.reply ?? open.err };
+  record('openGuard', { ok: open.reply?.ok === true, ms: +open.ms.toFixed(1), launchedBy: status?.launchedBy, reply: open.reply ?? open.err });
 
   step('5 browser close');
   // 5. The app keeps running after Chrome closes (it is not the shim's child).
-  await context.close();
+  const t = Date.now();
+  record('browserClosedCleanly', await closeBrowser(context));
+  record('browserCloseMs', Date.now() - t);
   await sleep(1500);
-  result.appSurvivesBrowserClose = appStatus()?.ok === true;
+  record('appSurvivesBrowserClose', appStatus()?.ok === true);
 } finally {
-  await context.close().catch(() => {});
+  await closeBrowser(context).catch(() => {});
 }
 
 step('6 single instance');
@@ -186,19 +199,19 @@ const exits = await Promise.all(copies.map((c) => new Promise((resolve) => {
   c.on('exit', (code) => { clearTimeout(timer); resolve({ code, stderr: stderr.trim() }); });
 })));
 const live = appStatus();
-result.singleInstance = {
+record('singleInstance', {
   stillRunning: exits.filter((e) => e.running).length,
   exitedAlreadyRunning: exits.filter((e) => /already running/.test(e.stderr ?? '')).length,
   servingPid: live?.pid ?? null,
   servingIsOneOfThem: exits.some((e) => e.running && e.pid === live?.pid),
-};
+});
 step('7 stale socket');
 // 7. A killed instance leaves a stale socket; the next start reclaims it.
 if (live?.pid) process.kill(live.pid, 'SIGKILL');
 await sleep(300);
 const reclaimed = spawn(appBin, [], { stdio: 'ignore', detached: true });
 reclaimed.unref();
-result.staleSocketReclaimed = Boolean(await waitFor(() => appStatus()?.ok && appStatus()?.pid === reclaimed.pid, 5000));
+record('staleSocketReclaimed', Boolean(await waitFor(() => appStatus()?.ok && appStatus()?.pid === reclaimed.pid, 5000)));
 await stopApp();
 
 for (const file of manifestPaths) fs.rmSync(file, { force: true });

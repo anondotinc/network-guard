@@ -123,9 +123,17 @@ fn launch() -> io::Result<()> {
     const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
     const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
     let exe = own_dir()?.join("anon-guard.exe");
+    // Chrome hands the host inheritable stdio pipes. Left inheritable, the long-lived app
+    // keeps copies of them, so Chrome never sees the host's pipes close. The spike can keep
+    // the old behaviour (ANON_GUARD_SPIKE_KEEP_INHERIT=1) to measure the difference.
+    let keep = env::var_os("ANON_GUARD_SPIKE_KEEP_INHERIT").is_some();
+    if !keep {
+        stdio_not_inheritable();
+    }
+    let tag = if keep { "inherit" } else { "noinherit" };
     let spawn = |flags: u32, how: &str| {
         Command::new(&exe)
-            .arg(format!("--launched-by=shim-{how}"))
+            .arg(format!("--launched-by=shim-{how}-{tag}"))
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -135,4 +143,23 @@ fn launch() -> io::Result<()> {
     spawn(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB, "breakaway")
         .or_else(|_| spawn(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP, "in-job"))?;
     Ok(())
+}
+
+#[cfg(windows)]
+fn stdio_not_inheritable() {
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetStdHandle(which: u32) -> *mut core::ffi::c_void;
+        fn SetHandleInformation(handle: *mut core::ffi::c_void, mask: u32, flags: u32) -> i32;
+    }
+    const HANDLE_FLAG_INHERIT: u32 = 0x1;
+    // STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE
+    for which in [-10i32 as u32, -11i32 as u32, -12i32 as u32] {
+        unsafe {
+            let handle = GetStdHandle(which);
+            if !handle.is_null() && handle as isize != -1 {
+                SetHandleInformation(handle, HANDLE_FLAG_INHERIT, 0);
+            }
+        }
+    }
 }
