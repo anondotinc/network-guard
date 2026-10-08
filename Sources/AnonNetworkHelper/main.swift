@@ -41,15 +41,6 @@ do {
     // Prototype processes sequentially and caps each host session; no background daemon.
     for _ in 0..<128 {
         guard let payload = try NativeFrames.read(from: .standardInput) else { break }
-        let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any]
-        #if DEBUG
-        // Separate, explicitly negotiated development transport. Legacy frames
-        // retain their 4 KiB limit and their local-only provider contracts.
-        if object?["v"] as? Int == 7 {
-            try RPCProxySession.run(hello: payload, input: .standardInput, output: .standardOutput)
-            break
-        }
-        #endif
         FileHandle.standardOutput.write(try NativeFrames.encode(router.respond(payload)))
     }
 } catch {

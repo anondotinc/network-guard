@@ -5,10 +5,6 @@
 The native helper is a short-lived Chrome native-messaging process, not a service.
 The VPN protocols have no sockets, wallet IPC, login storage, telemetry, automatic
 updater, or shell command API. The user retains control of VPN accounts and configuration.
-Development builds from 0.1.4 have a separate opt-in v7 RPC proxy transport which
-handles RPC URLs, headers and bodies and opens outbound connections through
-a user-selected SOCKS5 proxy. See [its boundary and limits](docs/rpc-proxy.md).
-It has no listening server and is not exposed by production builds.
 
 Only one exact `chrome-extension://<id>/` origin is accepted in each build channel.
 Chrome's `nativeMessaging` permission and the user-owned host manifest are required.
