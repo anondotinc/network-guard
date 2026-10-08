@@ -113,8 +113,16 @@ fn launch() -> io::Result<()> {
     Ok(())
 }
 
-/// Chrome runs native hosts in a job object; the app must break away from it or it dies
-/// with the shim. The spike records which path worked.
+/// Starts the app detached. How it is started is the spike's variable
+/// (ANON_GUARD_SPIKE_LAUNCH):
+/// - `clean` (default): CreateProcessW with handle inheritance off. The app needs
+///   nothing from the shim, and an inherited handle ties it to Chrome's pipes (a
+///   browser close hung until it exited).
+/// - `std-noinherit`: std::process::Command after clearing the inherit flag on the
+///   shim's three std handles.
+/// - `std-inherit`: std::process::Command as is.
+///
+/// Each mode tries to break away from the job first and records whether it could.
 #[cfg(windows)]
 fn launch() -> io::Result<()> {
     use std::os::windows::process::CommandExt;
@@ -123,25 +131,105 @@ fn launch() -> io::Result<()> {
     const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
     const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
     let exe = own_dir()?.join("anon-guard.exe");
-    // Chrome hands the host inheritable stdio pipes. Left inheritable, the long-lived app
-    // keeps copies of them, so Chrome never sees the host's pipes close. The spike can keep
-    // the old behaviour (ANON_GUARD_SPIKE_KEEP_INHERIT=1) to measure the difference.
-    let keep = env::var_os("ANON_GUARD_SPIKE_KEEP_INHERIT").is_some();
-    if !keep {
+    let mode = env::var("ANON_GUARD_SPIKE_LAUNCH").unwrap_or_else(|_| "clean".into());
+    let base = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP;
+    if mode == "clean" {
+        return create_process_no_inherit(&exe, "breakaway-clean", base | CREATE_BREAKAWAY_FROM_JOB)
+            .or_else(|_| create_process_no_inherit(&exe, "in-job-clean", base));
+    }
+    if mode == "std-noinherit" {
         stdio_not_inheritable();
     }
-    let tag = if keep { "inherit" } else { "noinherit" };
     let spawn = |flags: u32, how: &str| {
         Command::new(&exe)
-            .arg(format!("--launched-by=shim-{how}-{tag}"))
+            .arg(format!("--launched-by=shim-{how}-{mode}"))
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .creation_flags(flags)
             .spawn()
     };
-    spawn(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB, "breakaway")
-        .or_else(|_| spawn(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP, "in-job"))?;
+    spawn(base | CREATE_BREAKAWAY_FROM_JOB, "breakaway").or_else(|_| spawn(base, "in-job"))?;
+    Ok(())
+}
+
+#[cfg(windows)]
+fn create_process_no_inherit(exe: &std::path::Path, how: &str, flags: u32) -> io::Result<()> {
+    use core::ffi::c_void;
+    use std::os::windows::ffi::OsStrExt;
+    #[repr(C)]
+    struct StartupInfoW {
+        cb: u32,
+        reserved: *mut u16,
+        desktop: *mut u16,
+        title: *mut u16,
+        x: u32,
+        y: u32,
+        x_size: u32,
+        y_size: u32,
+        x_count_chars: u32,
+        y_count_chars: u32,
+        fill_attribute: u32,
+        flags: u32,
+        show_window: u16,
+        reserved2_len: u16,
+        reserved2: *mut u8,
+        std_input: *mut c_void,
+        std_output: *mut c_void,
+        std_error: *mut c_void,
+    }
+    #[repr(C)]
+    struct ProcessInformation {
+        process: *mut c_void,
+        thread: *mut c_void,
+        pid: u32,
+        tid: u32,
+    }
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn CreateProcessW(
+            application: *const u16,
+            command_line: *mut u16,
+            process_attributes: *mut c_void,
+            thread_attributes: *mut c_void,
+            inherit_handles: i32,
+            flags: u32,
+            environment: *mut c_void,
+            current_directory: *const u16,
+            startup: *mut StartupInfoW,
+            info: *mut ProcessInformation,
+        ) -> i32;
+        fn CloseHandle(handle: *mut c_void) -> i32;
+    }
+    let application: Vec<u16> = exe.as_os_str().encode_wide().chain(Some(0)).collect();
+    let mut command_line: Vec<u16> = format!("\"{}\" --launched-by=shim-{how}", exe.display())
+        .encode_utf16()
+        .chain(Some(0))
+        .collect();
+    let mut startup: StartupInfoW = unsafe { core::mem::zeroed() };
+    startup.cb = core::mem::size_of::<StartupInfoW>() as u32;
+    let mut info: ProcessInformation = unsafe { core::mem::zeroed() };
+    let ok = unsafe {
+        CreateProcessW(
+            application.as_ptr(),
+            command_line.as_mut_ptr(),
+            core::ptr::null_mut(),
+            core::ptr::null_mut(),
+            0, // no handle inheritance at all
+            flags,
+            core::ptr::null_mut(),
+            core::ptr::null(),
+            &mut startup,
+            &mut info,
+        )
+    };
+    if ok == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    unsafe {
+        CloseHandle(info.process);
+        CloseHandle(info.thread);
+    }
     Ok(())
 }
 

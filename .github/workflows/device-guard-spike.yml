@@ -45,31 +45,26 @@ jobs:
           npm init -y >/dev/null
           npm install --no-audit --no-fund playwright@1.62.1
           npx playwright install chromium
-      - name: Native messaging end to end, browser closes with app started by the shim (openGuard)
+      - name: Native messaging end to end, shim launches the app with std Command, std handles not inheritable
         timeout-minutes: 6
         continue-on-error: true
+        env:
+          ANON_GUARD_SPIKE_LAUNCH: std-noinherit
         run: |
           taskkill //F //IM anon-guard.exe 2>/dev/null || true
           bin="$(cygpath -w "$PWD/target/release")"
           PLAYWRIGHT_MODULE="$RUNNER_TEMP/pw/node_modules/playwright" node test/native-e2e.mjs --headless --close-with shim \
             --shim "$bin\\anon-guard-host.exe" --app-bin "$bin\\anon-guard.exe" \
             --start "start \"\" \"$bin\\anon-guard.exe\""
-      - name: Native messaging end to end, browser closes with app started by the harness
+      - name: Native messaging end to end, shim launches the app with CreateProcessW, no handle inheritance
         timeout-minutes: 6
         continue-on-error: true
+        env:
+          ANON_GUARD_SPIKE_LAUNCH: clean
         run: |
           taskkill //F //IM anon-guard.exe 2>/dev/null || true
           bin="$(cygpath -w "$PWD/target/release")"
-          PLAYWRIGHT_MODULE="$RUNNER_TEMP/pw/node_modules/playwright" node test/native-e2e.mjs --headless --close-with harness \
-            --shim "$bin\\anon-guard-host.exe" --app-bin "$bin\\anon-guard.exe" \
-            --start "start \"\" \"$bin\\anon-guard.exe\""
-      - name: Native messaging end to end, browser closes with no app running at close
-        timeout-minutes: 6
-        continue-on-error: true
-        run: |
-          taskkill //F //IM anon-guard.exe 2>/dev/null || true
-          bin="$(cygpath -w "$PWD/target/release")"
-          PLAYWRIGHT_MODULE="$RUNNER_TEMP/pw/node_modules/playwright" node test/native-e2e.mjs --headless --close-with nobody \
+          PLAYWRIGHT_MODULE="$RUNNER_TEMP/pw/node_modules/playwright" node test/native-e2e.mjs --headless --close-with shim \
             --shim "$bin\\anon-guard-host.exe" --app-bin "$bin\\anon-guard.exe" \
             --start "start \"\" \"$bin\\anon-guard.exe\""
       - name: Start-at-login value round trip (per-user Run key)
