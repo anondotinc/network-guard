@@ -81,7 +81,57 @@ All five checks passed in 3 of 3 runs.
 6. **Chromium finds a host manifest in `<user-data-dir>/NativeMessagingHosts`.** That made the tests independent of the user's Chrome. Branded Chrome on macOS reads `~/Library/Application Support/Google/Chrome/NativeMessagingHosts`, as today's installer assumes.
 7. **The nested shim signs cleanly.** Signing inside-out (shim with its own identifier, then the bundle, never `--deep`) passes `codesign --verify --strict --deep`, and both login-item kinds register. Notarization is still the open half.
 
-## Linux and Windows
+## Results, Linux arm64 (Docker), 2026-10-08
 
-- **Linux** (Docker, GNOME shell, Chromium): results pending.
-- **Windows:** `.github/workflows/device-guard-spike.yml` runs the same harness on `windows-2025` and `windows-11-arm`. It writes the HKCU registration a per-user installer would write, and checks whether the app escapes Chrome's job object. Results pending.
+The Linux runs used:
+- Debian trixie with GNOME Shell 48.7, run as a real `gnome-session` under systemd and logind, with `gnome-shell --headless --virtual-monitor`.
+- Ubuntu 24.04 with GNOME Shell 46, to repeat the GNOME checks.
+- Chromium: Debian Chromium 154 and Playwright's Chromium 156.
+
+`dbus-run-session -- gnome-shell --headless` alone does not start, because gnome-shell needs logind on the system bus.
+
+### Tray on stock GNOME
+
+| Check | Result |
+| --- | --- |
+| Stock GNOME, no extension | No `org.kde.StatusNotifierWatcher`. The app prints "tray unavailable" and keeps serving |
+| Indicator extension on (Debian and Ubuntu ship it as `ubuntu-appindicators@ubuntu.com`, off by default) | The watcher appears and our item is registered. gnome-shell reads the item and its dbusmenu, and Quit through the menu works |
+| App started at login (XDG autostart) | **Before the fix: no tray in 5 of 5 logins.** gnome-session starts the app about 0.8 s before the shell's extension owns the watcher, and ksni gave up after one try. **With `assume_sni_available(true)`: tray in 5 of 5**, Debian and Ubuntu alike. It also recovers when the extension is turned off and on again |
+| Stale item after a quit or SIGKILL | dropped by the shell in about 0.5 s |
+
+### Native messaging
+
+The harness, run headless on Chromium, passes every check in all three setups below:
+
+| Setup | One-shot p50 | Port p50 |
+| --- | --- | --- |
+| GNOME session with a tray | 3–4.6 ms | 0.3–0.4 ms |
+| Session bus, no watcher | 2.6–7.4 ms | 0.3–0.6 ms |
+| No session bus, `XDG_RUNTIME_DIR` unset (socket falls back to `~/.local/state`) | 2.5–3.8 ms | 0.3 ms |
+
+The remaining harness checks pass in every setup:
+- `openGuard` launches the app in about 54 ms through `setsid`, and the app survives the browser closing.
+- Single instance holds: 1 of 5 copies keeps running.
+- The stale socket is reclaimed.
+
+### Autostart, sizes and manifests
+
+- **Autostart file.** `~/.config/autostart/*.desktop` with `NoDisplay=true` and `X-GNOME-Autostart-enabled=true` passes `desktop-file-validate`. gnome-session 48 and 46 start the app at login, and `X-GNOME-Autostart-enabled=false` stops it.
+- **Sizes.** The app is 2.3 MB and the shim 0.4 MB. Neither links libdbus or GTK; they need only libc, libgcc_s and libm. The glibc floor is the build host's, so ship from an older base image for Debian 12 and Ubuntu 22.04.
+- **Manifest lookup.** Chromium reads per-user manifests from `<user-data-dir>/NativeMessagingHosts`. That is `~/.config/chromium/…` only for the default profile. System directories differ by build: Chromium uses `/etc/chromium/…`, and Chrome for Testing uses `/etc/opt/chrome_for_testing/…`. Branded Chrome (`~/.config/google-chrome/…`) and snap Chromium were not tested.
+
+### Findings for v1
+
+1. **The tray must wait for the indicator watcher.** At login the app starts before the shell is ready. Without `assume_sni_available(true)`, a login-started app on GNOME never shows its icon. The fix is in this branch.
+2. **Stock GNOME, Fedora and Debian have no indicator extension enabled.** There the app is a background process with no icon; the only way to quit is `anon-guard quit` or the wallet. This needs a product decision: either the wallet becomes the UI there, or setup offers to enable the extension.
+3. **The Linux build needs an old glibc base** to run on older distributions.
+
+## Windows
+
+`.github/workflows/device-guard-spike.yml` runs the same harness on `windows-2025` and `windows-11-arm`. It writes the HKCU registration a per-user installer would write, and checks whether the app escapes Chrome's job object.
+
+The first two runs only exposed harness bugs, and the Rust build passed on both runners each time:
+- A `D:\` path was taken as a package name.
+- A `start`ed app inherited the harness's pipes, so the harness waited for it forever.
+
+Results pending.

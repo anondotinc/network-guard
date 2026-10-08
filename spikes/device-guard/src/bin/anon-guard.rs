@@ -17,6 +17,7 @@ use interprocess::local_socket::{prelude::*, Stream};
 use serde_json::{json, Value};
 
 #[derive(Debug, Clone)]
+#[cfg_attr(target_os = "linux", allow(dead_code))]
 enum AppEvent {
     Request,
     Refresh,
@@ -330,6 +331,14 @@ mod ui {
             let data = rgba.chunks(4).flat_map(|p| [p[3], p[0], p[1], p[2]]).collect();
             vec![ksni::Icon { width: size as i32, height: size as i32, data }]
         }
+        fn watcher_online(&self) {
+            eprintln!("anon-guard: tray registered (watcher online)");
+        }
+        fn watcher_offline(&self, reason: ksni::OfflineReason) -> bool {
+            // Keep the service: the shell's indicator extension can come back (shell restart).
+            eprintln!("anon-guard: tray watcher offline: {reason:?}");
+            true
+        }
         fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
             use ksni::menu::StandardItem;
             vec![
@@ -350,9 +359,11 @@ mod ui {
     pub fn run(bound: guard_spike::Bound, shared: Arc<Shared>) -> ExitCode {
         use ksni::blocking::TrayMethods;
         let (quit_tx, quit_rx) = mpsc::channel();
-        let handle = match (SpikeTray { requests: 0, quit: quit_tx.clone() }).spawn() {
+        // At login the app can start before the shell's indicator extension owns the watcher;
+        // assume_sni_available keeps the item and registers when the watcher appears.
+        let handle = match (SpikeTray { requests: 0, quit: quit_tx.clone() }).assume_sni_available(true).spawn() {
             Ok(handle) => {
-                eprintln!("anon-guard: tray registered");
+                eprintln!("anon-guard: tray spawned");
                 Some(handle)
             }
             Err(e) => {

@@ -93,7 +93,10 @@ if (process.platform === 'win32') {
   }
 }
 
-const sh = (cmd) => spawnSync(cmd, { shell: true, encoding: 'utf8' });
+// stdio 'ignore': on Windows a `start`ed app inherits piped handles, and spawnSync then waits
+// for the app itself to exit.
+const sh = (cmd) => spawnSync(cmd, { shell: true, stdio: 'ignore' });
+const step = (name) => process.stderr.write(`[e2e] ${name}\n`);
 const appStatus = () => {
   const r = spawnSync(appBin, ['status'], { encoding: 'utf8' });
   try { return JSON.parse(r.stdout.trim()); } catch { return null; }
@@ -123,6 +126,7 @@ try {
   await page.waitForFunction(() => window.nm);
   const send = (msg) => page.evaluate((m) => window.nm.send(m), msg);
 
+  step('1 app running');
   // 1. App running: one-shot messages (a shim per message) and a long-lived port.
   await stopApp();
   const started = await startApp();
@@ -136,6 +140,7 @@ try {
   for (let i = 0; i < 50; i++) portRuns.push(await page.evaluate((m) => window.nm.portSend(m), { v: 1, id: 100 + i, method: 'status' }));
   result.port = { ok: portRuns.filter((r) => r.reply?.ok).length, ...stats(portRuns.map((r) => r.ms)) };
 
+  step('2 restart under port');
   // 2. The app restarts under an open port: the shim reconnects on the next message.
   await stopApp();
   await startApp();
@@ -143,6 +148,7 @@ try {
   result.portAcrossRestart = { ok: afterRestart.reply?.ok === true, ms: +afterRestart.ms.toFixed(1), disconnected: await page.evaluate(() => window.nm.disconnected) };
   await page.evaluate(() => window.nm.close());
 
+  step('3 app stopped');
   // 3. App stopped: a background read gets a fixed code and never starts the app.
   await stopApp();
   const notRunning = [];
@@ -154,11 +160,13 @@ try {
   };
   result.shimDescribeStopped = (await send({ op: 'shimDescribe', id: 1 })).reply;
 
+  step('4 openGuard');
   // 4. A user's click: openGuard starts the app and answers once it is up.
   const open = await send({ v: 1, id: 400, op: 'openGuard' });
   const status = appStatus();
   result.openGuard = { ok: open.reply?.ok === true, ms: +open.ms.toFixed(1), launchedBy: status?.launchedBy, reply: open.reply ?? open.err };
 
+  step('5 browser close');
   // 5. The app keeps running after Chrome closes (it is not the shim's child).
   await context.close();
   await sleep(1500);
@@ -167,6 +175,7 @@ try {
   await context.close().catch(() => {});
 }
 
+step('6 single instance');
 // 6. Single instance: five copies started at once leave exactly one listening.
 await stopApp();
 const copies = Array.from({ length: 5 }, () => spawn(appBin, [], { stdio: ['ignore', 'ignore', 'pipe'] }));
@@ -183,6 +192,7 @@ result.singleInstance = {
   servingPid: live?.pid ?? null,
   servingIsOneOfThem: exits.some((e) => e.running && e.pid === live?.pid),
 };
+step('7 stale socket');
 // 7. A killed instance leaves a stale socket; the next start reclaims it.
 if (live?.pid) process.kill(live.pid, 'SIGKILL');
 await sleep(300);

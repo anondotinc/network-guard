@@ -46,6 +46,7 @@ jobs:
           npm install --no-audit --no-fund playwright@1.62.1
           npx playwright install chromium
       - name: Native messaging end to end
+        timeout-minutes: 10
         run: |
           bin="$(cygpath -w "$PWD/target/release")"
           PLAYWRIGHT_MODULE="$RUNNER_TEMP/pw/node_modules/playwright" node test/native-e2e.mjs --headless \
