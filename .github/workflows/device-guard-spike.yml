@@ -1,0 +1,61 @@
+name: Device Guard spike
+
+# Windows half of the Device Guard M0 spike: a per-user HKCU registration that Chromium
+# finds, the app escaping Chrome's job object when the shim starts it, and single instance
+# on a named pipe. Runs only on the spike branch or by hand.
+on:
+  push:
+    branches: [codex/device-guard-spike]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Device Guard spike (${{ matrix.runner }})
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [windows-2025, windows-11-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+        working-directory: spikes/device-guard
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Build the app and the host shim
+        run: |
+          rustup toolchain install stable --profile minimal
+          cargo build --release
+          ls -l target/release/anon-guard.exe target/release/anon-guard-host.exe
+      - name: Chromium for the harness
+        run: |
+          mkdir -p "$RUNNER_TEMP/pw" && cd "$RUNNER_TEMP/pw"
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund playwright@1.62.1
+          npx playwright install chromium
+      - name: Native messaging end to end
+        run: |
+          bin="$(cygpath -w "$PWD/target/release")"
+          PLAYWRIGHT_MODULE="$RUNNER_TEMP/pw/node_modules/playwright" node test/native-e2e.mjs --headless \
+            --shim "$bin\\anon-guard-host.exe" --app-bin "$bin\\anon-guard.exe" \
+            --start "start \"\" \"$bin\\anon-guard.exe\"" | tee "$RUNNER_TEMP/device-guard-spike.json"
+      - name: Start-at-login value round trip (per-user Run key)
+        shell: pwsh
+        run: |
+          $exe = Join-Path (Resolve-Path target/release) 'anon-guard.exe'
+          $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+          Set-ItemProperty -Path $key -Name 'AnonNetworkGuardSpike' -Value "`"$exe`" --launched-by=login"
+          Get-ItemProperty -Path $key -Name 'AnonNetworkGuardSpike' | Format-List AnonNetworkGuardSpike
+          Remove-ItemProperty -Path $key -Name 'AnonNetworkGuardSpike'

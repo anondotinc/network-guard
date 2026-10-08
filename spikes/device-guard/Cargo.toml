@@ -1,0 +1,46 @@
+[package]
+name = "device-guard-spike"
+description = "Device Guard v1 M0 spike: tray app, login item, local IPC and the Chrome host shim"
+edition = "2021"
+license = "MIT"
+publish = false
+version = "0.0.1"
+
+# Standalone so the spike never touches the shipping crate's lockfile or CI.
+[workspace]
+
+[lib]
+name = "guard_spike"
+path = "src/lib.rs"
+
+[[bin]]
+name = "anon-guard"
+path = "src/bin/anon-guard.rs"
+
+[[bin]]
+name = "anon-guard-host"
+path = "src/bin/anon-guard-host.rs"
+
+[dependencies]
+serde_json = "1"
+interprocess = "2.4"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+tao = "0.37"
+tray-icon = "0.26"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSString", "NSError"] }
+objc2-service-management = { version = "0.3", features = ["SMAppService"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+ksni = { version = "0.3", features = ["blocking"] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true
