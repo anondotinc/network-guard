@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { DEV, Dev, canonical, classifyManifest, decodeFrames, encodeFrame, layoutFor, loadState, previousSwiftVersion, writePrivate } from './dev.mjs';
+import { infoPlist } from './device-bundle.mjs';
 
 // Temporary homes only; nothing here runs a helper, the app or an installer.
 function home(t) {
@@ -100,4 +101,57 @@ test('leaving the device variant restores the saved Swift registration, or remov
   writePrivate(layout.manifest, foreign);
   dev.leaveDevice();
   assert.equal(readFileSync(layout.manifest, 'utf8'), foreign);
+});
+
+/** A synthetic app bundle (never executed) whose two binaries hold `text`. */
+function syntheticApp(root, name, text) {
+  const app = path.join(path.dirname(root), 'builds', name, DEV.bundleName);
+  mkdirSync(path.join(app, 'Contents/MacOS'), { recursive: true });
+  writeFileSync(path.join(app, 'Contents/Info.plist'), infoPlist(DEV, { version: '0.0.0', build: '1' }));
+  for (const binary of ['anon-guard', 'anon-guard-host']) writeFileSync(path.join(app, 'Contents/MacOS', binary), text);
+  return app;
+}
+
+test('reinstalls keep one backup per distinct build', { skip: process.platform !== 'darwin' && 'ditto and plutil are macOS tools' }, t => {
+  const root = home(t);
+  const dev = new Dev({ home: root, log: () => {} });
+  dev.quitApp = () => {}; // nothing here runs the app
+  const A = 'synthetic build A';
+  const B = 'synthetic build B';
+  const [a, b, rebuiltB] = [syntheticApp(root, 'a', A), syntheticApp(root, 'b', B), syntheticApp(root, 'b2', B)];
+  const binary = (app) => readFileSync(path.join(app, 'Contents/MacOS/anon-guard'), 'utf8');
+  const backups = () => loadState(dev.layout).appBackups.map((entry) => binary(path.join(dev.layout.dev, entry, DEV.bundleName)));
+
+  dev.replaceApp(a);
+  dev.replaceApp(b);
+  assert.deepEqual(backups(), [A]);
+  // Toggling to the Swift variant and back reinstalls the same build: nothing new to keep.
+  dev.replaceApp(rebuiltB);
+  dev.replaceApp(rebuiltB);
+  assert.deepEqual(backups(), [A]);
+  assert.equal(binary(dev.layout.app), B);
+  // A build saved earlier moves to the end instead of being saved twice.
+  dev.replaceApp(a);
+  dev.replaceApp(b);
+  assert.deepEqual(backups(), [B, A]);
+  assert.equal(binary(dev.layout.app), B);
+  assert.deepEqual(readdirSync(path.join(dev.layout.dev, 'backups/apps')).length, 2);
+});
+
+test('leaving the device variant turns off a login item whoever turned it on', t => {
+  const dev = new Dev({ home: home(t), log: () => {} });
+  dev.quitApp = () => {};
+  for (const [startAtLogin, unregisters] of [['enabled', true], ['requiresApproval', true], ['off', false], ['unknown', false], [null, false]]) {
+    const actions = [];
+    // Stands in for the app's `login-item` command (the real one answers only in the account's real home).
+    dev.loginItem = (action) => {
+      actions.push(action);
+      return action === 'status' ? (startAtLogin && { startAtLogin }) : { startAtLogin: 'off' };
+    };
+    // Turned on from the tray menu, or registered before `--no-login-item`: dev.mjs never recorded it.
+    dev.state.loginItem = false;
+    dev.leaveDevice();
+    assert.equal(actions.includes('unregister'), unregisters, String(startAtLogin));
+    assert.equal(dev.state.loginItem, false);
+  }
 });

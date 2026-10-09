@@ -141,7 +141,11 @@ node scripts/dev.mjs uninstall                  # removes everything dev.mjs ins
   `SIGN_IDENTITY` is set. It saves the helper's host manifest, points the host
   at the app's shim, and registers the app's LaunchAgent login item. Then it
   starts the app with v9 `openApp`. The app answers v1–v8 through the installed
-  helper, so this variant installs the helper first if it is missing.
+  helper, so this variant installs the helper first if it is missing. It keeps
+  up to three earlier app builds for `rollback`, one copy of each; reinstalling
+  the build that is already installed saves nothing.
+- **Switching back to `swift`** turns the app's login item off, whether this
+  script or the app's tray menu turned it on.
 - **`--from <path>`** installs a prebuilt `Anon Network Guard Setup.app` or
   `Anon Network Guard Dev.app` instead of building. `--no-login-item` skips
   the login item.

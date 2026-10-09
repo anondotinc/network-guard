@@ -26,7 +26,8 @@
 // home. macOS login items ignore HOME, so a temporary home never registers one.
 // No VPN provider is contacted: verification uses only describe and appStatus.
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -78,6 +79,29 @@ export function classifyManifest(manifest, layout) {
   if (target && canonical(target) === canonical(path.join(layout.app, 'Contents/MacOS/anon-guard-host')))
     return { kind: 'device', path: target };
   return { kind: 'foreign', path: target };
+}
+
+/** SHA-256 over a bundle's tree: each entry's relative path, kind, mode and contents (or link target). */
+export function bundleDigest(bundle) {
+  const hash = createHash('sha256');
+  const walk = (relative) => {
+    const full = path.join(bundle, relative);
+    const entry = lstatSync(full);
+    const mode = (entry.mode & 0o7777).toString(8);
+    if (entry.isSymbolicLink()) {
+      hash.update(`l\0${relative}\0${readlinkSync(full)}\0`);
+    } else if (entry.isDirectory()) {
+      hash.update(`d\0${relative}\0${mode}\0`);
+      for (const name of readdirSync(full).sort()) walk(path.join(relative, name));
+    } else if (entry.isFile()) {
+      hash.update(`f\0${relative}\0${mode}\0${entry.size}\0`);
+      hash.update(readFileSync(full));
+    } else {
+      hash.update(`o\0${relative}\0`);
+    }
+  };
+  walk('');
+  return hash.digest('hex');
 }
 
 export function readJson(file, limit = 64 * 1024) {
@@ -322,14 +346,7 @@ export class Dev {
 
     const source = this.deviceApp(from);
     this.assertOurApp(source);
-    mkdirSync(this.layout.applications, { recursive: true });
-    if (existsSync(this.layout.app)) {
-      this.assertOurApp(this.layout.app);
-      this.quitApp();
-      this.backupApp();
-    }
-    const copied = run('/usr/bin/ditto', [source, this.layout.app], { quiet: true });
-    if (copied.status !== 0) throw new Error('Copying the app failed.');
+    this.replaceApp(source);
 
     const printed = run(this.shim(), ['--print-host-manifest'], { json: true, home: this.home });
     const manifest = printed.value;
@@ -362,24 +379,61 @@ export class Dev {
     return { status, describe, bridged };
   }
 
+  /**
+   * Puts the app from `source` in place. A different installed build is backed
+   * up first. The same build (a variant toggle, a rebuild of unchanged source)
+   * is left as it is, so it never pushes a distinct build out of the backups.
+   */
+  replaceApp(source) {
+    mkdirSync(this.layout.applications, { recursive: true });
+    if (existsSync(this.layout.app)) {
+      this.assertOurApp(this.layout.app);
+      this.quitApp();
+      if (bundleDigest(this.layout.app) === bundleDigest(source)) {
+        this.log('This build of the Device Guard app is already installed.');
+        return;
+      }
+      this.backupApp();
+    }
+    const copied = run('/usr/bin/ditto', [source, this.layout.app], { quiet: true });
+    if (copied.status !== 0) throw new Error('Copying the app failed.');
+  }
+
+  /** Moves the installed app into the backups. One copy per build: an earlier copy of it moves to the end. */
   backupApp() {
-    const backup = path.join(this.layout.dev, 'backups', 'apps', String(Date.now()));
+    const digest = bundleDigest(this.layout.app);
+    const kept = [];
+    for (const entry of this.state.appBackups ?? []) {
+      const saved = path.join(this.layout.dev, entry, DEV.bundleName);
+      if (existsSync(saved) && bundleDigest(saved) === digest) rmSync(path.join(this.layout.dev, entry), { recursive: true, force: true });
+      else kept.push(entry);
+    }
+    const apps = path.join(this.layout.dev, 'backups', 'apps');
+    let backup = path.join(apps, String(Date.now()));
+    for (let n = 1; existsSync(backup); n++) backup = path.join(apps, `${Date.now()}-${n}`);
     mkdirSync(backup, { recursive: true, mode: 0o700 });
     renameSync(this.layout.app, path.join(backup, DEV.bundleName));
-    this.state.appBackups = [...(this.state.appBackups ?? []), path.relative(this.layout.dev, backup)];
+    this.state.appBackups = [...kept, path.relative(this.layout.dev, backup)];
     while (this.state.appBackups.length > MAX_APP_BACKUPS) {
       rmSync(path.join(this.layout.dev, this.state.appBackups.shift()), { recursive: true, force: true });
     }
     this.save();
   }
 
+  /**
+   * Unregisters the app's login item when it is on, whoever turned it on: this
+   * script, or the tray menu after `install --no-login-item`. Asks the app, so
+   * only the account's real home with the app installed has one to remove.
+   */
+  dropLoginItem() {
+    if (['enabled', 'requiresApproval'].includes(this.loginItem('status')?.startAtLogin)) this.loginItem('unregister');
+    this.state.loginItem = false;
+  }
+
   /** Stops the app, removes its login item, and gives the host back to the Swift helper. */
   leaveDevice() {
     this.quitApp();
-    if (this.state.loginItem) {
-      this.loginItem('unregister');
-      this.state.loginItem = false;
-    }
+    this.dropLoginItem();
     const current = this.variant();
     if (current.kind === 'device') {
       const backup = this.state.swiftManifestBackup && path.join(this.layout.dev, this.state.swiftManifestBackup);
@@ -472,7 +526,7 @@ export class Dev {
     if (existsSync(this.layout.app)) {
       this.assertOurApp(this.layout.app);
       this.quitApp();
-      if (this.realHome && ['enabled', 'requiresApproval'].includes(this.loginItem('status')?.startAtLogin)) this.loginItem('unregister');
+      this.dropLoginItem();
       if (this.variant().kind === 'device') this.leaveDevice();
       run(LSREGISTER, ['-u', this.layout.app], { quiet: true });
       rmSync(this.layout.app, { recursive: true });
