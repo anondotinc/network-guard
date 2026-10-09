@@ -1,0 +1,813 @@
+{
+  "description": "The Device Guard host shim (CONTRACTS.md, Device Guard v9). Each case sets what the app is doing, sends one frame and pins the shim's reply. See README.md.",
+  "cases": [
+    {
+      "name": "appStatus with the app stopped is answered by the shim",
+      "app": "stopped",
+      "request": {
+        "v": 9,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "appStatus"
+      },
+      "launches": 0,
+      "response": {
+        "v": 9,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "app": {
+          "running": false,
+          "version": null,
+          "startAtLogin": "off"
+        },
+        "shim": {
+          "version": "{{version}}"
+        }
+      }
+    },
+    {
+      "name": "appStatus with the app running reports its version",
+      "app": "running",
+      "request": {
+        "v": 9,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "appStatus"
+      },
+      "startAtLogin": "enabled",
+      "response": {
+        "v": 9,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "app": {
+          "running": true,
+          "version": "{{version}}",
+          "startAtLogin": "enabled"
+        },
+        "shim": {
+          "version": "{{version}}"
+        }
+      }
+    },
+    {
+      "name": "appStatus during another launch reports not running",
+      "app": "starting",
+      "request": {
+        "v": 9,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "appStatus"
+      },
+      "startAtLogin": "requiresApproval",
+      "response": {
+        "v": 9,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "app": {
+          "running": false,
+          "version": null,
+          "startAtLogin": "requiresApproval"
+        },
+        "shim": {
+          "version": "{{version}}"
+        }
+      }
+    },
+    {
+      "name": "appStatus with start at login unknown",
+      "app": "stopped",
+      "request": {
+        "v": 9,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "appStatus"
+      },
+      "startAtLogin": "unknown",
+      "response": {
+        "v": 9,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "app": {
+          "running": false,
+          "version": null,
+          "startAtLogin": "unknown"
+        },
+        "shim": {
+          "version": "{{version}}"
+        }
+      }
+    },
+    {
+      "name": "appStatus lowercases the id",
+      "app": "stopped",
+      "request": {
+        "v": 9,
+        "id": "01234567-89AB-4DEF-8123-456789ABCDEF",
+        "method": "appStatus"
+      },
+      "response": {
+        "v": 9,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "app": {
+          "running": false,
+          "version": null,
+          "startAtLogin": "off"
+        },
+        "shim": {
+          "version": "{{version}}"
+        }
+      }
+    },
+    {
+      "name": "appStatus accepts an integral float version",
+      "app": "stopped",
+      "request": {
+        "v": 9.0,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "appStatus"
+      },
+      "response": {
+        "v": 9,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "app": {
+          "running": false,
+          "version": null,
+          "startAtLogin": "off"
+        },
+        "shim": {
+          "version": "{{version}}"
+        }
+      }
+    },
+    {
+      "name": "v9 rejects an extra key before reading the id",
+      "app": "stopped",
+      "request": {
+        "v": 9,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "appStatus",
+        "app": "anon-guard"
+      },
+      "response": {
+        "v": 9,
+        "ok": false,
+        "error": "invalidRequest"
+      }
+    },
+    {
+      "name": "v9 rejects a non-UUID id",
+      "app": "stopped",
+      "request": {
+        "v": 9,
+        "id": "not-a-uuid",
+        "method": "appStatus"
+      },
+      "response": {
+        "v": 9,
+        "ok": false,
+        "error": "invalidRequest"
+      }
+    },
+    {
+      "name": "v9 rejects a numeric method",
+      "app": "stopped",
+      "request": {
+        "v": 9,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": 9
+      },
+      "response": {
+        "v": 9,
+        "ok": false,
+        "error": "invalidRequest"
+      }
+    },
+    {
+      "name": "v9 rejects a missing method",
+      "app": "stopped",
+      "request": {
+        "v": 9,
+        "id": "01234567-89ab-4def-8123-456789abcdef"
+      },
+      "response": {
+        "v": 9,
+        "ok": false,
+        "error": "invalidRequest"
+      }
+    },
+    {
+      "name": "v9 rejects an unknown method with the id",
+      "app": "stopped",
+      "request": {
+        "v": 9,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "quit"
+      },
+      "response": {
+        "v": 9,
+        "ok": false,
+        "error": "unsupportedMethod",
+        "id": "01234567-89ab-4def-8123-456789abcdef"
+      }
+    },
+    {
+      "name": "v9 rejects the spike's shimDescribe",
+      "app": "stopped",
+      "request": {
+        "v": 9,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "shimDescribe"
+      },
+      "response": {
+        "v": 9,
+        "ok": false,
+        "error": "unsupportedMethod",
+        "id": "01234567-89ab-4def-8123-456789abcdef"
+      }
+    },
+    {
+      "name": "fractional v9 is an unknown version",
+      "app": "stopped",
+      "request": {
+        "v": 9.5,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "appStatus"
+      },
+      "response": {
+        "v": 1,
+        "ok": false,
+        "error": "unsupportedVersion"
+      }
+    },
+    {
+      "name": "string v9 is an unknown version",
+      "app": "stopped",
+      "request": {
+        "v": "9",
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "appStatus"
+      },
+      "response": {
+        "v": 1,
+        "ok": false,
+        "error": "unsupportedVersion"
+      }
+    },
+    {
+      "name": "openApp with the app running answers without a launch",
+      "app": "running",
+      "request": {
+        "v": 9,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "openApp"
+      },
+      "launches": 0,
+      "response": {
+        "v": 9,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "app": {
+          "running": true,
+          "version": "{{version}}",
+          "startAtLogin": "off"
+        }
+      }
+    },
+    {
+      "name": "openApp starts a stopped app and reports it",
+      "app": "stopped",
+      "request": {
+        "v": 9,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "openApp"
+      },
+      "open": "running",
+      "launches": 1,
+      "response": {
+        "v": 9,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "app": {
+          "running": true,
+          "version": "{{version}}",
+          "startAtLogin": "off"
+        }
+      }
+    },
+    {
+      "name": "openApp reports a failed start",
+      "app": "stopped",
+      "request": {
+        "v": 9,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "openApp"
+      },
+      "open": "failed",
+      "launches": 1,
+      "response": {
+        "v": 9,
+        "ok": false,
+        "error": "appStartFailed",
+        "id": "01234567-89ab-4def-8123-456789abcdef"
+      }
+    },
+    {
+      "name": "openApp during another launch is appStarting and starts nothing",
+      "app": "starting",
+      "request": {
+        "v": 9,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "openApp"
+      },
+      "launches": 0,
+      "response": {
+        "v": 9,
+        "ok": false,
+        "error": "appStarting",
+        "id": "01234567-89ab-4def-8123-456789abcdef"
+      }
+    },
+    {
+      "name": "openApp that loses the race to another launch is appStarting",
+      "app": "stopped",
+      "request": {
+        "v": 9,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "openApp"
+      },
+      "open": "starting",
+      "launches": 1,
+      "response": {
+        "v": 9,
+        "ok": false,
+        "error": "appStarting",
+        "id": "01234567-89ab-4def-8123-456789abcdef"
+      }
+    },
+    {
+      "name": "openApp lowercases the id",
+      "app": "stopped",
+      "request": {
+        "v": 9,
+        "id": "01234567-89AB-4DEF-8123-456789ABCDEF",
+        "method": "openApp"
+      },
+      "open": "running",
+      "launches": 1,
+      "response": {
+        "v": 9,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "app": {
+          "running": true,
+          "version": "{{version}}",
+          "startAtLogin": "off"
+        }
+      }
+    },
+    {
+      "name": "v1 status with the app stopped is appNotRunning and starts nothing",
+      "app": "stopped",
+      "request": {
+        "v": 1,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "status"
+      },
+      "launches": 0,
+      "response": {
+        "v": 1,
+        "ok": false,
+        "error": "appNotRunning",
+        "id": "01234567-89ab-4def-8123-456789abcdef"
+      }
+    },
+    {
+      "name": "v1 capabilities with the app stopped is appNotRunning and starts nothing",
+      "app": "stopped",
+      "request": {
+        "v": 1,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "capabilities"
+      },
+      "launches": 0,
+      "response": {
+        "v": 1,
+        "ok": false,
+        "error": "appNotRunning",
+        "id": "01234567-89ab-4def-8123-456789abcdef"
+      }
+    },
+    {
+      "name": "v2 capabilities with the app stopped is appNotRunning and starts nothing",
+      "app": "stopped",
+      "request": {
+        "v": 2,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "capabilities"
+      },
+      "launches": 0,
+      "response": {
+        "v": 2,
+        "ok": false,
+        "error": "appNotRunning",
+        "id": "01234567-89ab-4def-8123-456789abcdef"
+      }
+    },
+    {
+      "name": "v2 connectSelected with the app stopped is appNotRunning and starts nothing",
+      "app": "stopped",
+      "request": {
+        "v": 2,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "connectSelected"
+      },
+      "launches": 0,
+      "response": {
+        "v": 2,
+        "ok": false,
+        "error": "appNotRunning",
+        "id": "01234567-89ab-4def-8123-456789abcdef"
+      }
+    },
+    {
+      "name": "v3 probe with the app stopped is appNotRunning and starts nothing",
+      "app": "stopped",
+      "request": {
+        "v": 3,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "probe",
+        "provider": "mullvad"
+      },
+      "launches": 0,
+      "response": {
+        "v": 3,
+        "ok": false,
+        "error": "appNotRunning",
+        "id": "01234567-89ab-4def-8123-456789abcdef"
+      }
+    },
+    {
+      "name": "v3 status with the app stopped is appNotRunning and starts nothing",
+      "app": "stopped",
+      "request": {
+        "v": 3,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "status",
+        "provider": "ivpn"
+      },
+      "launches": 0,
+      "response": {
+        "v": 3,
+        "ok": false,
+        "error": "appNotRunning",
+        "id": "01234567-89ab-4def-8123-456789abcdef"
+      }
+    },
+    {
+      "name": "v3 connectSelected with the app stopped is appNotRunning and starts nothing",
+      "app": "stopped",
+      "request": {
+        "v": 3,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "connectSelected",
+        "provider": "mullvad"
+      },
+      "launches": 0,
+      "response": {
+        "v": 3,
+        "ok": false,
+        "error": "appNotRunning",
+        "id": "01234567-89ab-4def-8123-456789abcdef"
+      }
+    },
+    {
+      "name": "v3 openApp NordVPN with the app stopped is appNotRunning and starts nothing",
+      "app": "stopped",
+      "request": {
+        "v": 3,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "openApp",
+        "provider": "nordvpn"
+      },
+      "launches": 0,
+      "response": {
+        "v": 3,
+        "ok": false,
+        "error": "appNotRunning",
+        "id": "01234567-89ab-4def-8123-456789abcdef"
+      }
+    },
+    {
+      "name": "v4 describe with the app stopped is appNotRunning and starts nothing",
+      "app": "stopped",
+      "request": {
+        "v": 4,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "describe"
+      },
+      "launches": 0,
+      "response": {
+        "v": 4,
+        "ok": false,
+        "error": "appNotRunning",
+        "id": "01234567-89ab-4def-8123-456789abcdef"
+      }
+    },
+    {
+      "name": "v5 openApp Proton with the app stopped is appNotRunning and starts nothing",
+      "app": "stopped",
+      "request": {
+        "v": 5,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "openApp",
+        "provider": "protonvpn"
+      },
+      "launches": 0,
+      "response": {
+        "v": 5,
+        "ok": false,
+        "error": "appNotRunning",
+        "id": "01234567-89ab-4def-8123-456789abcdef"
+      }
+    },
+    {
+      "name": "v8 describe with the app stopped is appNotRunning and starts nothing",
+      "app": "stopped",
+      "request": {
+        "v": 8,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "describe"
+      },
+      "launches": 0,
+      "response": {
+        "v": 8,
+        "ok": false,
+        "error": "appNotRunning",
+        "id": "01234567-89ab-4def-8123-456789abcdef"
+      }
+    },
+    {
+      "name": "v1 status during a launch is appStarting",
+      "app": "starting",
+      "request": {
+        "v": 1,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "status"
+      },
+      "launches": 0,
+      "response": {
+        "v": 1,
+        "ok": false,
+        "error": "appStarting",
+        "id": "01234567-89ab-4def-8123-456789abcdef"
+      }
+    },
+    {
+      "name": "v8 describe during a launch is appStarting",
+      "app": "starting",
+      "request": {
+        "v": 8,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "describe"
+      },
+      "launches": 0,
+      "response": {
+        "v": 8,
+        "ok": false,
+        "error": "appStarting",
+        "id": "01234567-89ab-4def-8123-456789abcdef"
+      }
+    },
+    {
+      "name": "appNotRunning carries the lowercased id",
+      "app": "stopped",
+      "request": {
+        "v": 1,
+        "id": "01234567-89AB-4DEF-8123-456789ABCDEF",
+        "method": "status"
+      },
+      "response": {
+        "v": 1,
+        "ok": false,
+        "error": "appNotRunning",
+        "id": "01234567-89ab-4def-8123-456789abcdef"
+      }
+    },
+    {
+      "name": "appNotRunning carries the router's version for 1.0",
+      "app": "stopped",
+      "request": {
+        "v": 1.0,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "status"
+      },
+      "response": {
+        "v": 1,
+        "ok": false,
+        "error": "appNotRunning",
+        "id": "01234567-89ab-4def-8123-456789abcdef"
+      }
+    },
+    {
+      "name": "non-JSON keeps the v1 envelope",
+      "app": "stopped",
+      "requestText": "not json",
+      "response": {
+        "v": 1,
+        "ok": false,
+        "error": "invalidRequest"
+      }
+    },
+    {
+      "name": "unknown version keeps the v1 envelope",
+      "app": "running",
+      "request": {
+        "v": 99,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "status"
+      },
+      "forwards": 0,
+      "response": {
+        "v": 1,
+        "ok": false,
+        "error": "unsupportedVersion"
+      }
+    },
+    {
+      "name": "retired v7 keeps the v1 envelope",
+      "app": "stopped",
+      "request": {
+        "v": 7,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "rpcCapabilities"
+      },
+      "response": {
+        "v": 1,
+        "ok": false,
+        "error": "unsupportedVersion"
+      }
+    },
+    {
+      "name": "v1 extra key keeps its envelope while the app runs",
+      "app": "running",
+      "request": {
+        "v": 1,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "status",
+        "path": "/bin/sh"
+      },
+      "forwards": 0,
+      "response": {
+        "v": 1,
+        "ok": false,
+        "error": "invalidRequest"
+      }
+    },
+    {
+      "name": "v1 mutation method keeps its envelope",
+      "app": "stopped",
+      "request": {
+        "v": 1,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "connect"
+      },
+      "response": {
+        "v": 1,
+        "ok": false,
+        "error": "unsupportedMethod"
+      }
+    },
+    {
+      "name": "v3 unknown provider keeps its envelope",
+      "app": "stopped",
+      "request": {
+        "v": 3,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "status",
+        "provider": "wireguard"
+      },
+      "response": {
+        "v": 3,
+        "ok": false,
+        "error": "invalidRequest"
+      }
+    },
+    {
+      "name": "v3 Proton keeps its envelope during a launch",
+      "app": "starting",
+      "request": {
+        "v": 3,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "openApp",
+        "provider": "protonvpn"
+      },
+      "response": {
+        "v": 3,
+        "ok": false,
+        "error": "invalidRequest",
+        "id": "01234567-89ab-4def-8123-456789abcdef"
+      }
+    },
+    {
+      "name": "v6 Mullvad keeps its envelope",
+      "app": "stopped",
+      "request": {
+        "v": 6,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "status",
+        "provider": "mullvad"
+      },
+      "response": {
+        "v": 6,
+        "ok": false,
+        "error": "invalidRequest",
+        "id": "01234567-89ab-4def-8123-456789abcdef"
+      }
+    },
+    {
+      "name": "v8 other method keeps its envelope",
+      "app": "stopped",
+      "request": {
+        "v": 8,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "status"
+      },
+      "response": {
+        "v": 8,
+        "ok": false,
+        "error": "unsupportedMethod",
+        "id": "01234567-89ab-4def-8123-456789abcdef"
+      }
+    },
+    {
+      "name": "v1 status with the app running is relayed unchanged",
+      "app": "running",
+      "request": {
+        "v": 1,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "status"
+      },
+      "appReply": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "relayed": "by the app",
+        "v": 1
+      },
+      "forwards": 1,
+      "launches": 0,
+      "response": {
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "relayed": "by the app",
+        "v": 1
+      }
+    },
+    {
+      "name": "v8 describe with the app running is relayed unchanged",
+      "app": "running",
+      "request": {
+        "v": 8,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "describe"
+      },
+      "appReply": {
+        "helper": {
+          "version": "from the helper"
+        },
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "v": 8
+      },
+      "forwards": 1,
+      "response": {
+        "helper": {
+          "version": "from the helper"
+        },
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "v": 8
+      }
+    },
+    {
+      "name": "a helper error is relayed unchanged",
+      "app": "running",
+      "request": {
+        "v": 3,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "method": "status",
+        "provider": "ivpn"
+      },
+      "appReply": {
+        "error": "providerUnavailable",
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": false,
+        "v": 3
+      },
+      "forwards": 1,
+      "response": {
+        "error": "providerUnavailable",
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": false,
+        "v": 3
+      }
+    }
+  ]
+}

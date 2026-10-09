@@ -1,0 +1,67 @@
+[package]
+name = "anon-network-guard-device"
+description = "Anon Network Guard device app (tray, login item, local socket, bridge) and its Chrome host shim"
+edition = "2021"
+rust-version = "1.80"
+license = "MIT"
+publish = false
+# The shipped version comes from Sources/NetworkHelperCore/BuildVersion.swift,
+# through the helper crate's build_info.
+version = "0.0.0"
+
+# Standalone: the helper crate in ../rust keeps its own lockfile and CI.
+[workspace]
+
+[lib]
+name = "guard_device"
+path = "src/lib.rs"
+
+[[bin]]
+name = "anon-guard"
+path = "src/bin/anon-guard.rs"
+
+[[bin]]
+name = "anon-guard-host"
+path = "src/bin/anon-guard-host.rs"
+
+[features]
+# The development channel: host inc.anon.network_helper.dev, the development
+# extension id, bundle inc.anon.network-guard.dev. Without it, production.
+development = ["anon-network-guard/development"]
+
+[dependencies]
+# Wire parsing, the version router and build identity are shared with the
+# helper, so the shim's error envelopes match conformance/router.json exactly.
+anon-network-guard = { path = "../rust" }
+serde_json = "1"
+interprocess = "2.4"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+tao = "0.37"
+tray-icon = "0.26"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSString", "NSError"] }
+objc2-service-management = { version = "0.3", features = ["SMAppService"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+ksni = { version = "0.3", features = ["blocking"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_System_Console",
+  "Win32_System_JobObjects",
+  "Win32_System_Registry",
+  "Win32_System_Threading",
+] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true
