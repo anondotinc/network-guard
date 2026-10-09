@@ -30,7 +30,9 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args == ["--print-host-manifest"] {
         let path = std::env::current_exe().and_then(|path| path.canonicalize());
-        return match path.ok().and_then(|path| manifest::host(path.to_str()?).ok()) {
+        // canonicalize() on Windows returns a verbatim `\\?\C:\…` path; manifests use `C:\…`.
+        let text = |path: std::path::PathBuf| path.to_str().map(|text| text.strip_prefix(r"\\?\").unwrap_or(text).to_string());
+        return match path.ok().and_then(text).and_then(|path| manifest::host(&path).ok()) {
             Some(value) => {
                 println!("{}", serde_json::to_string_pretty(&value).unwrap());
                 ExitCode::SUCCESS

@@ -106,10 +106,21 @@ fn unknown_files_block_uninstall() {
 }
 
 #[test]
+fn test_installers_never_share_the_real_lock() {
+    let one = Sandbox::new("lock-one");
+    let two = Sandbox::new("lock-two");
+    let real = Installer::new(one.installer.local.clone(), String::new());
+    assert_eq!(real.lock_name(), format!("inc.anon.network-guard.setup.{}", build_info::CHANNEL));
+    assert_ne!(one.installer.lock_name(), real.lock_name());
+    assert_ne!(one.installer.lock_name(), two.installer.lock_name());
+    assert!(!one.installer.lock_name().contains('\\'));
+}
+
+#[test]
 fn held_lock_reports_busy() {
     let sandbox = Sandbox::new("busy");
     sandbox.profile("chrome");
-    let _held = lock::exclusive(&format!("inc.anon.network-guard.setup.{}", build_info::CHANNEL), (), ()).unwrap();
+    let _held = lock::exclusive(&sandbox.installer.lock_name(), (), ()).unwrap();
     let (payload, helper) = sandbox.release("0.2.0", b"helper");
     // The mutex is re-entrant for the owning thread, so contend from another thread.
     let installer = Installer::new(sandbox.installer.local.clone(), sandbox.prefix.clone());

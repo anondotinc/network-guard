@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Windows setup: write `C:\…` executable paths into the host manifest. The
+  shared manifest check accepted only `/…` paths, so every Windows install
+  failed with `UnsafePath` (the two setup tests failing on master). The setup
+  mutex is now scoped per test installer so parallel tests never contend.
 - Remove the development-only v7 SOCKS5 RPC proxy (`rpcCapabilities`, `rpc`).
   The helper no longer carries wallet RPC data in any build; private RPC moves to
   anon-rpc in the wallet. A v7 request now gets the same
