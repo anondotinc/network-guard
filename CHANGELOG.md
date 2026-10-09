@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Add the Device Guard app (`device/`, promoted from the M0 spike) with bridge
+  mode and the v9 host-shim contract: `appStatus` (answered by the shim even
+  when the app is down), `openApp` (only from a user's click; 10 s wait;
+  `appStartFailed`), and `appNotRunning` / `appStarting` for other well-formed
+  requests. v1–v8 stay byte-identical: the app delegates them to the installed
+  helper and relays its bytes, with a 5 s read cache that never extends the
+  wallet's TTL. Malformed requests keep the router's envelope in every state.
+  `conformance/shim.json` pins the shim. An old helper's
+  `{v:1,ok:false,error:"unsupportedVersion"}` reply to v9 means no Device Guard app.
+- Add `scripts/dev.mjs` for one-command development installs. It can switch
+  between the Swift helper and the Device Guard app, roll back, and uninstall.
+  `scripts/build-device.mjs` builds the app bundle, signed ad hoc unless
+  `SIGN_IDENTITY` is set.
 - Setup keeps every installed version for rollback and can now re-point Chrome's
   registration at one of them (`UserInstaller.activate`) and list them
   (`inventory`). Development builds of the Setup app add a headless

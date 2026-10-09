@@ -102,6 +102,53 @@ Every helper runs the fixtures in [`conformance/`](conformance/README.md), which
 pin each request's exact reply, including the order of checks that decides which
 error and whether the reply carries the request id.
 
+## Device Guard v9
+
+The Device Guard app keeps Network Guard running per user ([device/](device/README.md)).
+Chrome talks to its host shim, registered under the same host name. v1–v8
+requests and replies stay byte-identical: in bridge mode the app forwards them
+to the installed helper and relays its reply bytes unchanged. v9 is the shim's:
+
+- `{"v":9,"id":"<UUID>","method":"appStatus"}` is answered by the shim itself,
+  even when the app is down:
+  `{"v":9,"id":<same>,"ok":true,"app":{"running":<bool>,"version":"<app version>"|null,"startAtLogin":"enabled"|"off"|"requiresApproval"|"unknown"},"shim":{"version":"<shim version>"}}`.
+  `version` is the running app's (from its socket hello), else `null`.
+- `{"v":9,"id":"<UUID>","method":"openApp"}` is sent only after a user's click.
+  The shim starts the app (macOS: `launchctl kickstart` of the registered agent
+  when it exists, else `open -g` of the bundle, with `-n` and the shim's `HOME`
+  so a copy serving another home is never mistaken for this one; Linux: `setsid`
+  spawn; Windows: `CreateProcessW` without handle inheritance), waits up to 10 s, and replies
+  `{"v":9,"id","ok":true,"app":{…as above}}` or `{"v":9,"id","ok":false,"error":"appStartFailed"}`.
+  An app that already answers is reported without a launch.
+- While the app is not running, every other well-formed request gets
+  `{"v":<request v>,"id":<request id>,"ok":false,"error":"appNotRunning"}`; a
+  request that arrives while an `openApp` launch is in progress gets
+  `"appStarting"`. Malformed requests keep today's envelope rules
+  ([`conformance/router.json`](conformance/router.json) ordering, for example
+  `{"v":1,"ok":false,"error":"invalidRequest"}`), in every app state. A
+  background poll never starts the app.
+- Malformed v9 follows the same order as every version: a wrong key set, a
+  non-UUID id or a non-string method is `{"v":9,"ok":false,"error":"invalidRequest"}`
+  (no id); an unknown method is `unsupportedMethod` with the id. A fractional
+  or non-numeric `v` is an unknown version (`{"v":1,…,"unsupportedVersion"}`).
+- An old helper answers a well-formed v9 request with `{"v":1,"ok":false,"error":"unsupportedVersion"}`:
+  the wallet then knows there is no Device Guard app (a plain helper) and
+  behaves as today.
+
+"Well-formed" means the helper's version router accepts the request's shape
+and would answer it from a provider or with `ok:true`; "malformed" means it
+rejects it before that (`invalidRequest`, `unsupportedVersion`,
+`unsupportedMethod`). The shim decides this with the helper's own router.
+[`conformance/shim.json`](conformance/shim.json) pins its replies, and its
+malformed-request bytes match the Swift helper's.
+
+In bridge mode, when the installed helper can't be run or doesn't answer, a
+well-formed request gets `{"v":<request v>,"id":<request id>,"ok":false,"error":"providerUnavailable"}`.
+The app may reuse an `ok:true` read (status, probe, describe, capabilities) for
+at most 5 s from the helper's run, with only the request id replaced; this
+never extends the wallet's 45 s status TTL. Connects and provider app launches
+are never reused.
+
 ## Release catalog v1
 
 Owner: `release/catalog.schema.json`. Consumers pin the schema and pure Node/ESM

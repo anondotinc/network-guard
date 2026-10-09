@@ -1,6 +1,6 @@
 # Native protocols
 
-The local-only contracts and 4 KiB limits below apply to v1–v6 and v8. Version 7 is
+The local-only contracts and 4 KiB limits below apply to v1–v6, v8 and v9. Version 7 is
 retired: it gets the same `unsupportedVersion` reply as any other unknown version.
 
 Transport: Chrome native messaging over stdin/stdout. Each JSON UTF-8 message is
@@ -23,6 +23,7 @@ allowlisted error code. Older versions may omit the ID when parsing fails.
 | 5 | `v,id,method,provider` | `probe`, `openApp` (Proton VPN only) |
 | 6 | `v,id,method,provider` | `status` (Proton VPN only, macOS) |
 | 8 | `v,id,method` | `describe` with platform and per-provider capabilities |
+| 9 | `v,id,method` | `appStatus`, `openApp` (Device Guard host shim only) |
 
 v1 capabilities remain `read-status, read-only-prototype`. v2 capabilities remain
 `connect-selected, development-control-pilot`; this historical string is unchanged
@@ -159,3 +160,20 @@ support from the version: Linux has no Proton status, so a Linux helper omits
 protocol 6 and answers v6 `status` with `unsupportedMethod`. The legacy `probe`
 reply keeps its fixed per-provider list for compatibility.
 
+### Device Guard v9
+
+v9 is answered by the Device Guard host shim, never by a helper. Send v9
+`appStatus` to learn whether a Device Guard app is installed and running; a
+plain helper replies `{"v":1,"ok":false,"error":"unsupportedVersion"}`.
+
+```json
+{"v":9,"id":"00000000-0000-4000-8000-000000000001","method":"appStatus"}
+```
+
+```json
+{"app":{"running":true,"startAtLogin":"enabled","version":"0.1.4"},"id":"00000000-0000-4000-8000-000000000001","ok":true,"shim":{"version":"0.1.4"},"v":9}
+```
+
+Send `openApp` only from a user's click. With the app stopped, v1–v8 requests
+get `appNotRunning` (or `appStarting` during a launch) with their own `v` and
+`id`, and nothing starts the app. See [the v9 contract](../CONTRACTS.md#device-guard-v9).
