@@ -13,7 +13,7 @@ use network_guard::build_info;
 use network_guard::error::{HelperError, Result};
 use network_guard::provider::{Adapter, Adapters, LegacyControl, Provider, Snapshot};
 use network_guard::router::{LockGuard, Router};
-use network_guard::wire::{self, failure, response};
+use network_guard::wire::{self, response};
 use serde_json::{json, Map, Value};
 
 pub const V9: i64 = 9;
@@ -75,9 +75,8 @@ impl Forward {
 }
 
 pub fn route(payload: &[u8]) -> Route {
-    let version = wire::object(payload).and_then(|object| wire::int(object.get("v")));
-    if version == Some(V9) {
-        return v9(payload);
+    if let Some(v9) = v9(payload) {
+        return v9;
     }
     let probe = Probe::default();
     let reply =
@@ -94,23 +93,21 @@ pub fn route(payload: &[u8]) -> Route {
     Route::Forward(Forward { v, id: id.clone(), method: text("method").unwrap_or_default(), provider: text("provider") })
 }
 
-/// `{"v":9,"id":"<UUID>","method":"appStatus"|"openApp"}`, checked in the
-/// order every version uses: shape and id first (no id in that error), then
-/// the version, then the method.
-fn v9(payload: &[u8]) -> Route {
-    let request = match wire::envelope(payload, &["v", "id", "method"]) {
-        Ok(request) => request,
-        Err(error) => return Route::Reply(encode(&failure(V9, None, error))),
-    };
+/// Exactly `{"v":9,"id":"<UUID>","method":"appStatus"|"openApp"}`. Anything
+/// else with `v:9` is malformed and keeps today's envelope: the helper's
+/// router answers it the way a plain helper does (`{"v":1,…}` with
+/// `invalidRequest` for a bad shape or id, `unsupportedVersion` otherwise).
+fn v9(payload: &[u8]) -> Option<Route> {
+    let request = wire::envelope(payload, &["v", "id", "method"]).ok()?;
     if !wire::is_version(request.object.get("v"), V9) {
-        return Route::Reply(encode(&failure(V9, Some(&request.id), HelperError::UnsupportedVersion)));
+        return None;
     }
     let method = match request.method.as_str() {
         "appStatus" => V9Method::AppStatus,
         "openApp" => V9Method::OpenApp,
-        _ => return Route::Reply(encode(&failure(V9, Some(&request.id), HelperError::UnsupportedMethod))),
+        _ => return None,
     };
-    Route::V9 { id: request.id, method }
+    Some(Route::V9 { id: request.id, method })
 }
 
 /// What the shim reports about the app (`appStatus`, `openApp`).
@@ -246,16 +243,15 @@ mod tests {
             Route::Reply(bytes) => serde_json::from_slice::<Value>(&bytes).unwrap(),
             other => panic!("{other:?}"),
         };
-        assert_eq!(
-            reply(json!({"v": 9, "id": ID, "method": "quit"})),
-            json!({"v": 9, "id": ID, "ok": false, "error": "unsupportedMethod"})
-        );
-        assert_eq!(
-            reply(json!({"v": 9, "id": ID, "method": "appStatus", "x": 1})),
-            json!({"v": 9, "ok": false, "error": "invalidRequest"})
-        );
-        assert_eq!(reply(json!({"v": 9, "id": "nope", "method": "appStatus"})), json!({"v": 9, "ok": false, "error": "invalidRequest"}));
-        assert_eq!(reply(json!({"v": 9.5, "id": ID, "method": "appStatus"})), json!({"v": 1, "ok": false, "error": "unsupportedVersion"}));
+        // Malformed v9 gets exactly what a plain helper answers today.
+        let invalid = json!({"v": 1, "ok": false, "error": "invalidRequest"});
+        let unknown = json!({"v": 1, "ok": false, "error": "unsupportedVersion"});
+        assert_eq!(reply(json!({"v": 9, "id": ID, "method": "quit"})), unknown);
+        assert_eq!(reply(json!({"v": 9, "id": ID, "method": "appStatus", "x": 1})), invalid);
+        assert_eq!(reply(json!({"v": 9, "id": "nope", "method": "appStatus"})), invalid);
+        assert_eq!(reply(json!({"v": 9, "id": ID, "method": 9})), invalid);
+        assert_eq!(reply(json!({"v": 9, "id": ID})), invalid);
+        assert_eq!(reply(json!({"v": 9.5, "id": ID, "method": "appStatus"})), unknown);
     }
 
     #[test]

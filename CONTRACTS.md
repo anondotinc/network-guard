@@ -127,10 +127,12 @@ to the installed helper and relays its reply bytes unchanged. v9 is the shim's:
   ([`conformance/router.json`](conformance/router.json) ordering, for example
   `{"v":1,"ok":false,"error":"invalidRequest"}`), in every app state. A
   background poll never starts the app.
-- Malformed v9 follows the same order as every version: a wrong key set, a
-  non-UUID id or a non-string method is `{"v":9,"ok":false,"error":"invalidRequest"}`
-  (no id); an unknown method is `unsupportedMethod` with the id. A fractional
-  or non-numeric `v` is an unknown version (`{"v":1,…,"unsupportedVersion"}`).
+- Only exactly `v,id,method` with a UUID id and the method `appStatus` or
+  `openApp` is v9. Any other `v:9` request is malformed and gets what a plain
+  helper answers today, byte for byte: a wrong key set, a non-UUID id or a
+  non-string method is `{"v":1,"ok":false,"error":"invalidRequest"}`, and an
+  unknown method is `{"v":1,"ok":false,"error":"unsupportedVersion"}`, both
+  without the id. A fractional or non-numeric `v` is an unknown version too.
 - An old helper answers a well-formed v9 request with `{"v":1,"ok":false,"error":"unsupportedVersion"}`:
   the wallet then knows there is no Device Guard app (a plain helper) and
   behaves as today.

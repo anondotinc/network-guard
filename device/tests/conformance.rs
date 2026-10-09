@@ -165,11 +165,10 @@ fn every_router_case_through_the_shim() {
 const PLAIN_HELPER_V9: &[u8] = br#"{"error":"unsupportedVersion","ok":false,"v":1}"#;
 
 /// With `NETWORK_GUARD_SWIFT_HELPER` set to a compiled helper of the same
-/// channel: every v1–v8 request the shim answers by itself (malformed:
+/// channel: every request the shim answers by itself (malformed, v9 included:
 /// rejected before any provider) gets the same bytes from that helper, and a
 /// well-formed v9 request gets `PLAIN_HELPER_V9`. Only these requests are
 /// sent, so no provider is ever read or controlled.
-
 #[test]
 fn malformed_replies_match_the_compiled_helper_byte_for_byte() {
     use guard_device::route::{route, Route};
@@ -180,6 +179,7 @@ fn malformed_replies_match_the_compiled_helper_byte_for_byte() {
         return;
     };
     let mut frames = Vec::new();
+    let mut malformed_v9 = 0;
     for document in [fixture("router.json"), fixture("shim.json")] {
         for case in document["cases"].as_array().unwrap() {
             let frame = payload(case);
@@ -187,13 +187,16 @@ fn malformed_replies_match_the_compiled_helper_byte_for_byte() {
             let v9 = network_guard::wire::object(&frame).and_then(|o| network_guard::wire::int(o.get("v"))) == Some(9);
             match route(&frame) {
                 Route::V9 { .. } => frames.push((name, frame, PLAIN_HELPER_V9.to_vec())),
-                // A malformed v9 request is the shim's alone; an old helper rejects it its own way.
-                Route::Reply(reply) if !v9 => frames.push((name, frame, reply)),
-                _ => {}
+                Route::Reply(reply) => {
+                    malformed_v9 += usize::from(v9);
+                    frames.push((name, frame, reply));
+                }
+                Route::Forward(_) => {}
             }
         }
     }
     assert!(frames.len() >= 40, "{}", frames.len());
+    assert!(malformed_v9 >= 6, "{malformed_v9}");
     // Up to 128 frames per helper session; one session per frame keeps it simple.
     for (name, frame, expected) in frames {
         let mut child = Command::new(&helper)

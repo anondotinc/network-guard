@@ -138,7 +138,7 @@
       }
     },
     {
-      "name": "v9 rejects an extra key before reading the id",
+      "name": "v9 with an extra key gets the plain helper envelope",
       "app": "stopped",
       "request": {
         "v": 9,
@@ -147,13 +147,13 @@
         "app": "anon-guard"
       },
       "response": {
-        "v": 9,
+        "v": 1,
         "ok": false,
         "error": "invalidRequest"
       }
     },
     {
-      "name": "v9 rejects a non-UUID id",
+      "name": "v9 with a non-UUID id gets the plain helper envelope",
       "app": "stopped",
       "request": {
         "v": 9,
@@ -161,13 +161,13 @@
         "method": "appStatus"
       },
       "response": {
-        "v": 9,
+        "v": 1,
         "ok": false,
         "error": "invalidRequest"
       }
     },
     {
-      "name": "v9 rejects a numeric method",
+      "name": "v9 with a numeric method gets the plain helper envelope",
       "app": "stopped",
       "request": {
         "v": 9,
@@ -175,26 +175,26 @@
         "method": 9
       },
       "response": {
-        "v": 9,
+        "v": 1,
         "ok": false,
         "error": "invalidRequest"
       }
     },
     {
-      "name": "v9 rejects a missing method",
+      "name": "v9 without a method gets the plain helper envelope",
       "app": "stopped",
       "request": {
         "v": 9,
         "id": "01234567-89ab-4def-8123-456789abcdef"
       },
       "response": {
-        "v": 9,
+        "v": 1,
         "ok": false,
         "error": "invalidRequest"
       }
     },
     {
-      "name": "v9 rejects an unknown method with the id",
+      "name": "v9 with an unknown method is an unknown version, as for a plain helper",
       "app": "stopped",
       "request": {
         "v": 9,
@@ -202,14 +202,13 @@
         "method": "quit"
       },
       "response": {
-        "v": 9,
+        "v": 1,
         "ok": false,
-        "error": "unsupportedMethod",
-        "id": "01234567-89ab-4def-8123-456789abcdef"
+        "error": "unsupportedVersion"
       }
     },
     {
-      "name": "v9 rejects the spike's shimDescribe",
+      "name": "v9 rejects the spike's shimDescribe as an unknown version",
       "app": "stopped",
       "request": {
         "v": 9,
@@ -217,10 +216,9 @@
         "method": "shimDescribe"
       },
       "response": {
-        "v": 9,
+        "v": 1,
         "ok": false,
-        "error": "unsupportedMethod",
-        "id": "01234567-89ab-4def-8123-456789abcdef"
+        "error": "unsupportedVersion"
       }
     },
     {

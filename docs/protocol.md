@@ -176,4 +176,6 @@ plain helper replies `{"v":1,"ok":false,"error":"unsupportedVersion"}`.
 
 Send `openApp` only from a user's click. With the app stopped, v1–v8 requests
 get `appNotRunning` (or `appStarting` during a launch) with their own `v` and
-`id`, and nothing starts the app. See [the v9 contract](../CONTRACTS.md#device-guard-v9).
+`id`, and nothing starts the app. Any other `v:9` request (another method, an
+extra key, a non-UUID id) gets exactly what a plain helper answers, with `v:1`.
+See [the v9 contract](../CONTRACTS.md#device-guard-v9).

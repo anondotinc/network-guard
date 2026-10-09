@@ -110,6 +110,6 @@ With the app stopped, a malformed request gets its router reply. Any other
 request gets `appNotRunning` with the router's `v` and `id`. With the app
 running, malformed requests still get their router reply, and the rest are
 relayed. Setting `NETWORK_GUARD_SWIFT_HELPER` to a compiled helper also checks
-that the shim's malformed-request replies match that helper byte for byte. It
-also checks that the helper answers well-formed v9 with
-`{"v":1,"ok":false,"error":"unsupportedVersion"}`.
+that the shim's malformed-request replies, malformed v9 included, match that
+helper byte for byte. It also checks that the helper answers well-formed v9
+with `{"v":1,"ok":false,"error":"unsupportedVersion"}`.
