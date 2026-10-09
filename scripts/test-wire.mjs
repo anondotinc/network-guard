@@ -66,6 +66,7 @@ const requests = [
   { v: 6, id, method: 'connectSelected', provider: 'protonvpn' },
   { v: 6, id, method: 'status', provider: 'protonvpn', service: 'never-accepted' },
   { v: 6, id, method: 'status', provider: 'nordvpn' },
+  { v: 7, id, method: 'rpcCapabilities' },
   { v: 8, id, method: 'describe' },
 ];
 const response = run(Buffer.concat(requests.map(frame)));
@@ -89,6 +90,8 @@ assert.equal(replies[6].error, 'unsupportedVersion');
 assert.deepEqual(replies[7], { v: 5, id, ok: false, error: 'unsupportedMethod' });
 assert.deepEqual(replies[8], { v: 5, id, ok: false, error: 'unsupportedMethod' });
 assert.deepEqual(replies[9], { v: 3, id, ok: false, error: 'invalidRequest' });
+// v7 (the removed development RPC proxy) is an unknown version in every channel.
+assert.deepEqual(replies.at(-2), { v: 1, ok: false, error: 'unsupportedVersion' });
 for (const origin of [origins[channel === 'development' ? 'production' : 'development'],
   'https://example.test/', origins[channel] + 'page', 'chrome-extension://*/']) {
   const rejected = run(frame(requests[0]), origin);

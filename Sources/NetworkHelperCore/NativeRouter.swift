@@ -74,8 +74,9 @@ public struct PlatformDiscoveryService {
     }
 }
 
-/// One request frame in, one encoded response frame body out. The development
-/// v7 RPC transport is negotiated in `main.swift` before this router is reached.
+/// One request frame in, one encoded response frame body out. Any version not
+/// routed here (including the retired v7) reaches the v1 service, which answers
+/// `unsupportedVersion`.
 public struct NativeRouter {
     private let service: HelperService
     private let controls: ConnectionControlService
