@@ -6,6 +6,7 @@
 use std::fs;
 use std::io::{Read, Write};
 use std::os::unix::fs::PermissionsExt;
+use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::mpsc;
@@ -31,7 +32,12 @@ struct Home {
 
 impl Home {
     fn new(name: &str) -> Home {
-        let base = std::env::temp_dir().join(format!("guard-device-{name}-{}", std::process::id()));
+        Home::under(&std::env::temp_dir(), &format!("guard-device-{name}-"))
+    }
+
+    /// `<parent>/<prefix><pid>`, for a home short enough to hold its own socket.
+    fn under(parent: &Path, prefix: &str) -> Home {
+        let base = parent.join(format!("{prefix}{}", std::process::id()));
         let _ = fs::remove_dir_all(&base);
         for dir in ["home", "run"] {
             fs::create_dir_all(base.join(dir)).unwrap();
@@ -254,6 +260,64 @@ fn open_app_then_the_bridge_relays_and_caches_reads() {
     assert_eq!(after.call(request(1, "status")), not_running(1));
     assert_eq!(after.close(), 0);
     assert!(!home.app_running());
+}
+
+/// A socket in a run directory that other users can enter is never trusted,
+/// even when something there answers the hello: on a shared `/tmp` that
+/// directory may be another user's. (The other half, a server running as
+/// another user, is the peer UID check; exercising it needs a second account.)
+#[test]
+fn shim_trusts_only_a_private_run_directory() {
+    // Short enough that the run directory is `<support>/run` on macOS too.
+    let home = Home::under(Path::new("/tmp"), "gq");
+    let run = if cfg!(target_os = "macos") {
+        home.home().join("Library/Application Support/Anon/DeviceGuard").join(CHANNEL).join("run")
+    } else {
+        home.base.join("run").join(format!("anon-device-guard-{CHANNEL}"))
+    };
+    fs::create_dir_all(&run).unwrap();
+    fs::set_permissions(&run, fs::Permissions::from_mode(0o755)).unwrap();
+    let listener = UnixListener::bind(run.join("guard.sock")).unwrap();
+    // A forged app: completes the hello, then reports a connected tunnel.
+    std::thread::spawn(move || {
+        for conn in listener.incoming() {
+            let Ok(mut conn) = conn else { return };
+            std::thread::spawn(move || {
+                let mut hello = true;
+                loop {
+                    let mut header = [0u8; 4];
+                    if conn.read_exact(&mut header).is_err() {
+                        return;
+                    }
+                    let mut body = vec![0u8; u32::from_ne_bytes(header) as usize];
+                    if conn.read_exact(&mut body).is_err() {
+                        return;
+                    }
+                    let reply = if std::mem::take(&mut hello) {
+                        json!({ "ipc": 1, "app": "forged" })
+                    } else {
+                        json!({ "v": 1, "id": ID, "ok": true, "snapshot": { "tunnel": "connected" } })
+                    };
+                    let reply = reply.to_string();
+                    let _ = conn.write_all(&(reply.len() as u32).to_ne_bytes());
+                    let _ = conn.write_all(reply.as_bytes());
+                }
+            });
+        }
+    });
+
+    let mut port = Port::open(&home, Path::new(SHIM));
+    let status = port.call(request(9, "appStatus"));
+    assert_eq!((&status["app"]["running"], &status["app"]["version"]), (&json!(false), &Value::Null), "{status}");
+    assert_eq!(port.call(request(1, "status")), not_running(1));
+    assert_eq!(port.close(), 0);
+
+    // The same server in an owner-only directory is the user's own, and is trusted.
+    fs::set_permissions(&run, fs::Permissions::from_mode(0o700)).unwrap();
+    let mut port = Port::open(&home, Path::new(SHIM));
+    assert_eq!(port.call(request(9, "appStatus"))["app"]["version"], json!("forged"));
+    assert_eq!(port.call(request(1, "status"))["snapshot"]["tunnel"], json!("connected"));
+    assert_eq!(port.close(), 0);
 }
 
 #[test]

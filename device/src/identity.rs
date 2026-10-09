@@ -94,9 +94,15 @@ pub fn bridge_file() -> PathBuf {
 const MAX_SOCKET_PATH: usize = 100;
 
 /// Per-user directory for the socket, the instance lock and the launch lock.
-/// macOS: `<support>/run`, or, when that path is too long for a socket (a long
-/// `HOME`, as in tests), a directory in the per-user temporary folder named
-/// after a hash of `HOME`. Linux: `$XDG_RUNTIME_DIR`, else `<support>/run`.
+/// Linux: `$XDG_RUNTIME_DIR/anon-device-guard-<channel>`. Otherwise
+/// `<support>/run`, or, when that path is too long for a socket (a long `HOME`,
+/// as in tests), `anon-guard-<uid>-<c>-<hash of HOME>` in the temporary folder:
+/// the per-user one on macOS, the shared `/tmp` on Linux. The app only binds
+/// in a directory it owns and has made 0700, and clients only connect through
+/// such a directory to a server running as the same user
+/// (`ipc::prepare_run_dir`, `ipc::check_run_dir`, `ipc::check_peer`). Another
+/// user can at worst take the `/tmp` name first, which stops the app; it can
+/// never answer for it.
 #[cfg(unix)]
 pub fn run_dir() -> PathBuf {
     #[cfg(target_os = "linux")]
@@ -107,9 +113,15 @@ pub fn run_dir() -> PathBuf {
     if preferred.join("guard.sock").as_os_str().len() <= MAX_SOCKET_PATH {
         return preferred;
     }
-    // Short: macOS's per-user temp directory alone is about 49 bytes.
-    let tag = fnv1a(home_or_root().as_os_str().as_encoded_bytes()) & 0xffff_ffff_ffff;
-    short_temp().join(format!("anon-guard-{}-{tag:012x}", &CHANNEL[..1]))
+    // SAFETY: geteuid has no failure mode.
+    short_run_dir(&short_temp(), unsafe { libc::geteuid() }, &home_or_root())
+}
+
+/// Short: macOS's per-user temp directory alone is about 49 bytes.
+#[cfg(unix)]
+fn short_run_dir(temp: &std::path::Path, uid: u32, home: &std::path::Path) -> PathBuf {
+    let tag = fnv1a(home.as_os_str().as_encoded_bytes()) & 0xffff_ffff_ffff;
+    temp.join(format!("anon-guard-{uid}-{}-{tag:012x}", &CHANNEL[..1]))
 }
 
 /// The per-user temporary directory (`/var/folders/…/T` on macOS), independent of `TMPDIR`.
@@ -152,5 +164,19 @@ mod tests {
     fn hash_is_stable_and_distinguishes_homes() {
         assert_eq!(fnv1a(b""), 0xcbf2_9ce4_8422_2325);
         assert_ne!(fnv1a(b"/Users/a"), fnv1a(b"/Users/b"));
+    }
+
+    #[test]
+    fn the_short_run_dir_is_per_user_and_per_home() {
+        let tmp = std::path::Path::new("/tmp");
+        let home = std::path::Path::new("/home/a");
+        let dir = short_run_dir(tmp, 1000, home);
+        let name = dir.file_name().unwrap().to_str().unwrap();
+        assert!(name.starts_with(&format!("anon-guard-1000-{}-", &CHANNEL[..1])), "{name}");
+        assert_ne!(dir, short_run_dir(tmp, 1001, home));
+        assert_ne!(dir, short_run_dir(tmp, 1000, std::path::Path::new("/home/b")));
+        // Still a socket path even with a 10-digit uid in a 49-byte temp folder.
+        let deep = std::path::Path::new("/var/folders/ab/cdefghijklmnopqrstuvwxyz0123/T");
+        assert!(short_run_dir(deep, u32::MAX, home).join("guard.sock").as_os_str().len() <= MAX_SOCKET_PATH);
     }
 }

@@ -280,6 +280,10 @@ impl StartingLock {
     #[cfg(unix)]
     pub fn held_elsewhere() -> bool {
         use std::os::fd::AsRawFd;
+        // A lock in a directory that isn't ours says nothing about our launches.
+        if ipc::check_run_dir().is_err() {
+            return false;
+        }
         let Ok(file) = std::fs::File::open(lock_path()) else { return false };
         // SAFETY: a valid descriptor owned by `file`.
         if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) } == 0 {

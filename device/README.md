@@ -50,11 +50,15 @@ Chrome ──stdio──▶ anon-guard-host ──socket──▶ anon-guard ─
 | | macOS | Linux | Windows |
 | --- | --- | --- | --- |
 | App support, `bridge.json` | `~/Library/Application Support/Anon/DeviceGuard/<channel>` | `~/.local/state/anon/device-guard/<channel>` | `%LOCALAPPDATA%\Anon\DeviceGuard\<channel>` |
-| Socket, instance and launch locks | `<support>/run`, or a hashed folder in the per-user temp directory when the path is too long for a socket | `$XDG_RUNTIME_DIR/anon-device-guard-<channel>` | pipe `anon-device-guard-<channel>-<user>`, named mutexes |
+| Socket, instance and launch locks | `<support>/run`, or `anon-guard-<uid>-<c>-<hash>` in the per-user temp directory when the path is too long for a socket | `$XDG_RUNTIME_DIR/anon-device-guard-<channel>`, else `<support>/run`, else `/tmp/anon-guard-<uid>-<c>-<hash>` | pipe `anon-device-guard-<channel>-<user>`, named mutexes |
 | Start at login | LaunchAgent login item in the bundle | `~/.config/autostart/<bundle id>.desktop` | `HKCU\…\CurrentVersion\Run` value |
 
 Everything derives from `HOME` (`LOCALAPPDATA` on Windows), so tests run in a
-temporary home. macOS login items (`SMAppService`) ignore `HOME`. The
+temporary home. On macOS and Linux the app binds only in a run directory it
+owns and has made 0700. The shim and the CLI connect only through such a
+directory, and only to a server running as the same user. Another user who
+takes the `/tmp` name first can stop the app from starting, but can never
+answer for it. macOS login items (`SMAppService`) ignore `HOME`. The
 development tooling never registers one outside the account's real home.
 
 ## Starting the app (`openApp`)
@@ -95,6 +99,6 @@ the installed host from Chromium with a key-pinned test extension.
 - Notarization and the quarantined-download case are still untested (they need
   a notarytool profile).
 - Windows named pipe: set an explicit DACL for the current user and check the
-  client's SID. The macOS and Linux sockets already check the peer UID.
+  client's SID. On macOS and Linux both ends of the socket already check the peer UID.
 - Linux stock GNOME has no tray watcher. There the app runs without an icon.
 - Linux builds need an old glibc base to run on older distributions.

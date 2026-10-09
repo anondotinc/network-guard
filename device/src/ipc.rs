@@ -106,10 +106,30 @@ pub fn prepare_run_dir() -> io::Result<PathBuf> {
     let meta = fs::symlink_metadata(&dir)?;
     // SAFETY: geteuid has no failure mode.
     if !meta.is_dir() || meta.uid() != unsafe { libc::geteuid() } {
-        return Err(io::Error::new(io::ErrorKind::PermissionDenied, "run directory is not ours"));
+        return Err(not_ours());
     }
     fs::set_permissions(&dir, fs::Permissions::from_mode(0o700))?;
     Ok(dir)
+}
+
+/// The run directory as the app leaves it: a real directory (not a symlink),
+/// owned by this user, closed to everyone else. Clients check this before
+/// trusting anything in it; they never create or repair it.
+#[cfg(unix)]
+pub fn check_run_dir() -> io::Result<PathBuf> {
+    use std::os::unix::fs::MetadataExt;
+    let dir = crate::identity::run_dir();
+    let meta = fs::symlink_metadata(&dir)?;
+    // SAFETY: geteuid has no failure mode.
+    if !meta.is_dir() || meta.uid() != unsafe { libc::geteuid() } || meta.mode() & 0o077 != 0 {
+        return Err(not_ours());
+    }
+    Ok(dir)
+}
+
+#[cfg(unix)]
+fn not_ours() -> io::Error {
+    io::Error::new(io::ErrorKind::PermissionDenied, "run directory is not ours")
 }
 
 /// Single instance on Unix is a flock on a lock file, held for the app's lifetime.
@@ -153,7 +173,8 @@ pub fn bind() -> Result<Bound, BindError> {
     }
 }
 
-/// Same user only. The 0700 directory already stops others; this is the second lock.
+/// Same user only, on both ends: the app checks each client and each client
+/// checks the app. The 0700 directory already stops others; this is the second lock.
 #[cfg(unix)]
 pub fn check_peer(conn: &Stream) -> io::Result<()> {
     let euid = conn.peer_creds()?.euid();
@@ -170,9 +191,13 @@ pub fn check_peer(_: &Stream) -> io::Result<()> {
 }
 
 /// Connects to the running app and exchanges the hello. Returns the stream and
-/// the app's version. `role` is "shim" or "cli".
+/// the app's version. `role` is "shim" or "cli". On Unix the socket counts only
+/// in this user's private run directory, with this user's process behind it.
 pub fn connect(role: &str, origin: &str) -> io::Result<(Stream, String)> {
+    #[cfg(unix)]
+    check_run_dir()?;
     let mut stream = Stream::connect(socket_name()?)?;
+    check_peer(&stream)?;
     set_timeouts(&stream);
     write_json(&mut stream, &json!({ "ipc": IPC_VERSION, "role": role, "origin": origin, "peer": VERSION }))?;
     let hello = read_json(&mut stream)?.ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "app closed during hello"))?;
