@@ -58,7 +58,7 @@ mod tests {
     #[cfg(not(windows))]
     #[test]
     fn unix_paths_are_absolute() {
-        assert!(host("/home/someone/.local/share/anon/network-guard/production/versions/x/anon-network-helper").is_ok());
+        assert!(host("/opt/anon/network-guard/versions/x/anon-network-helper").is_ok());
         for refused in ["relative/helper", r"C:\helper.exe", "/bin/helper\nx", "/bin/helper\0"] {
             assert_eq!(host(refused), Err(HelperError::InvalidRequest), "{refused:?}");
         }
