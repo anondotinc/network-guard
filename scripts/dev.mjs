@@ -421,13 +421,11 @@ export class Dev {
     }
     if (result.device.installed) {
       result.device.version = plistValue(this.layout.app, 'CFBundleShortVersionString');
+      if (current.kind === 'device') result.swift.active = result.device.bridged;
       try {
         const [status] = this.shimSession([{ v: 9, id: uuid(), method: 'appStatus' }]);
         Object.assign(result.device, { running: status.app.running, startAtLogin: status.app.startAtLogin, shim: status.shim.version });
-        if (current.kind === 'device' && status.app.running) {
-          result.swift.active = result.device.bridged;
-          result.swift.describe = this.checkDevice().describe.helper;
-        }
+        if (current.kind === 'device' && status.app.running) result.swift.describe = this.checkDevice().describe.helper;
       } catch (error) { result.device.error = error.message; }
     }
     return result;
@@ -480,6 +478,8 @@ export class Dev {
       rmSync(this.layout.app, { recursive: true });
       removed.push(this.layout.app);
     }
+    // The app may have been deleted by hand: still give the host back.
+    if (this.variant().kind === 'device') this.leaveDevice();
     if (swiftVersions(this.layout).length > 0) {
       const variant = this.variant();
       if (variant.kind === 'foreign') throw new Error(`The development host points at ${variant.path}; not removing it.`);
