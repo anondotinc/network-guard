@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Setup keeps every installed version for rollback and can now re-point Chrome's
+  registration at one of them (`UserInstaller.activate`) and list them
+  (`inventory`). Development builds of the Setup app add a headless
+  `--install | --check | --list | --activate | --uninstall [--home <dir>]` entry
+  point for `scripts/dev.mjs`, running the same installer and checks as the
+  window. Production builds keep only the window.
 - Windows setup: write `C:\…` executable paths into the host manifest. The
   shared manifest check accepted only `/…` paths, so every Windows install
   failed with `UnsafePath` (the two setup tests failing on master). The setup

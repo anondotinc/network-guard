@@ -204,3 +204,112 @@ final class InstallerTests: XCTestCase {
         XCTAssertEqual(try installer.check(), .installed(version: "0.1.0"))
     }
 }
+
+final class RollbackAndCommandLineTests: XCTestCase {
+    var temporary: URL!
+    var userHome: URL!
+    var installer: UserInstaller!
+    override func setUpWithError() throws {
+        temporary = FileManager.default.temporaryDirectory.appendingPathComponent("anon-setup-cli-\(UUID().uuidString)")
+            .standardizedFileURL.resolvingSymlinksInPath()
+        userHome = temporary.appendingPathComponent("user")
+        try FileManager.default.createDirectory(at: userHome, withIntermediateDirectories: true,
+                                               attributes: [.posixPermissions: 0o700])
+        installer = UserInstaller(home: userHome)
+    }
+    override func tearDownWithError() throws {
+        // Exact freshly created fixture only; never a real home or installation.
+        try FileManager.default.removeItem(at: temporary)
+    }
+    /// A bundled helper and payload.json, as in Setup.app's Resources.
+    func resources(_ version: String, _ bytes: String) throws -> (URL, SetupPayload) {
+        let folder = temporary.appendingPathComponent("resources-\(version)-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let data = Data(bytes.utf8)
+        try data.write(to: folder.appendingPathComponent("anon-network-helper"))
+        let payload = SetupPayload(version: version, channel: NativeEnrollment.channel, sha256: UserInstaller.digest(data))
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        try encoder.encode(payload).write(to: folder.appendingPathComponent("payload.json"))
+        return (folder, payload)
+    }
+    func registeredPath() throws -> String {
+        let object = try JSONSerialization.jsonObject(with: Data(contentsOf: installer.registration)) as! [String: Any]
+        return object["path"] as! String
+    }
+    func run(_ arguments: [String], _ resources: URL? = nil) -> (Int32, [String: Any]) {
+        let result = SetupCommandLine.run(arguments + ["--home", userHome.path], resources: resources, home: temporary)
+        let object = (try? JSONSerialization.jsonObject(with: Data(result.output.utf8))) as? [String: Any] ?? [:]
+        return (result.status, object)
+    }
+
+    func testActivateRollsBackToAnInstalledVersionOnly() throws {
+        let (first, one) = try resources("0.1.0", "first synthetic helper")
+        let (second, two) = try resources("0.1.1", "second synthetic helper")
+        try installer.install(payload: one, bundledHelper: first.appendingPathComponent("anon-network-helper"))
+        try installer.install(payload: two, bundledHelper: second.appendingPathComponent("anon-network-helper"))
+        XCTAssertEqual(try installer.inventory(), InstallationInventory(versions: [one, two], active: two, registration: "owned"))
+        XCTAssertEqual(try installer.activate(directory: one.directoryName), one)
+        XCTAssertEqual(try installer.check(), .installed(version: "0.1.0"))
+        XCTAssertEqual(try registeredPath(), installer.helperURL(one).path)
+        XCTAssertThrowsError(try installer.activate(directory: "0.9.9-" + String(repeating: "0", count: 64))) {
+            XCTAssertEqual($0 as? SetupError, .installationDamaged)
+        }
+        try Data("tampered".utf8).write(to: installer.helperURL(two))
+        XCTAssertThrowsError(try installer.activate(directory: two.directoryName)) {
+            XCTAssertEqual($0 as? SetupError, .installationDamaged)
+        }
+        XCTAssertEqual(try registeredPath(), installer.helperURL(one).path)
+    }
+
+    func testActivateAndInventoryRespectAForeignRegistration() throws {
+        let (folder, one) = try resources("0.1.0", "synthetic helper")
+        try installer.install(payload: one, bundledHelper: folder.appendingPathComponent("anon-network-helper"))
+        let foreign = try JSONSerialization.data(withJSONObject: [
+            "name": NativeEnrollment.hostName, "description": "Device Guard bridge", "path": "/Applications/Other.app/host",
+            "type": "stdio", "allowed_origins": ["chrome-extension://\(NativeEnrollment.allowedExtensionIDs.first!)/"]])
+        try foreign.write(to: installer.registration)
+        XCTAssertEqual(try installer.inventory(), InstallationInventory(versions: [one], active: nil, registration: "foreign"))
+        XCTAssertThrowsError(try installer.activate(directory: one.directoryName)) {
+            XCTAssertEqual($0 as? SetupError, .registrationConflict)
+        }
+        XCTAssertEqual(try Data(contentsOf: installer.registration), foreign)
+    }
+
+    func testCommandLineInstallListActivateUninstall() throws {
+        let (first, one) = try resources("0.1.0", "first synthetic helper")
+        let (second, two) = try resources("0.1.1", "second synthetic helper")
+        var (status, reply) = run(["--check"])
+        XCTAssertEqual(status, 0); XCTAssertEqual(reply["state"] as? String, "notInstalled")
+        (status, reply) = run(["--install"], first)
+        XCTAssertEqual(status, 0); XCTAssertEqual((reply["active"] as? [String: Any])?["directory"] as? String, one.directoryName)
+        XCTAssertEqual(reply["registrationPath"] as? String, installer.registration.path)
+        (status, reply) = run(["--install"], second)
+        XCTAssertEqual(status, 0)
+        (status, reply) = run(["--list"])
+        XCTAssertEqual((reply["versions"] as? [[String: Any]])?.compactMap { $0["directory"] as? String },
+                       [one.directoryName, two.directoryName])
+        XCTAssertEqual((reply["active"] as? [String: Any])?["helper"] as? String, installer.helperURL(two).path)
+        XCTAssertEqual(reply["registration"] as? String, "owned")
+        (status, reply) = run(["--activate", one.directoryName])
+        XCTAssertEqual(status, 0); XCTAssertEqual(try installer.check(), .installed(version: "0.1.0"))
+        (status, reply) = run(["--activate", "unknown"])
+        XCTAssertEqual(status, 1); XCTAssertEqual(reply["error"] as? String, "installationDamaged")
+        (status, reply) = run(["--uninstall"])
+        XCTAssertEqual(status, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: installer.root.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: installer.registration.path))
+    }
+
+    func testCommandLineRefusesUsageErrorsAndNeverUsesTheDefaultHomeWhenOneIsGiven() throws {
+        for arguments in [["--install", "--home"], ["--install", "--home", "relative"], ["--activate"], ["--check", "--extra"], ["--window"]] {
+            let result = SetupCommandLine.run(arguments, resources: nil, home: temporary)
+            XCTAssertEqual(result.status, 64, arguments.joined(separator: " "))
+        }
+        XCTAssertFalse(SetupCommandLine.handles([]))
+        XCTAssertFalse(SetupCommandLine.handles(["-psn_0_12345"]))
+        let (status, reply) = run(["--install"], nil)
+        XCTAssertEqual(status, 1); XCTAssertEqual(reply["error"] as? String, "invalidPayload")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: temporary.path), ["user"])
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: userHome.path), [])
+    }
+}

@@ -50,7 +50,7 @@ public struct SetupPayload: Codable, Equatable {
         else { throw SetupError.invalidPayload }
         guard channel == NativeEnrollment.channel else { throw SetupError.wrongChannel }
     }
-    var directoryName: String { "\(version)-\(sha256)" }
+    public var directoryName: String { "\(version)-\(sha256)" }
 }
 
 public struct InstallationReceipt: Codable, Equatable {
@@ -63,6 +63,15 @@ public struct InstallationReceipt: Codable, Equatable {
 
 public enum InstallationState: Equatable {
     case notInstalled, installed(version: String), needsRepair
+}
+
+/// What the receipt records and which version Chrome's registration points at.
+/// `registration` is `none`, `owned` (one of the receipt's versions) or
+/// `foreign` (another program's manifest, such as a development bridge).
+public struct InstallationInventory: Equatable {
+    public let versions: [SetupPayload]
+    public let active: SetupPayload?
+    public let registration: String
 }
 
 /// User-only filesystem operations. No Process, VPN API, permission request, or network client.
@@ -85,6 +94,8 @@ public final class UserInstaller {
     private func executable(_ payload: SetupPayload) -> URL {
         versionsURL.appendingPathComponent(payload.directoryName).appendingPathComponent("anon-network-helper")
     }
+    /// Where a receipt version's helper lives. Reporting only; it is not validated here.
+    public func helperURL(_ payload: SetupPayload) -> URL { executable(payload) }
     public static func digest(_ data: Data) -> String {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
@@ -202,6 +213,37 @@ public final class UserInstaller {
             try makeDirectory(registration.deletingLastPathComponent())
             _ = try registeredVersion(record)
             try write(NativeEnrollment.manifest(executablePath: binary.path), to: registration)
+        }
+    }
+    /// Lists the receipt's versions (oldest first) without changing anything.
+    /// A foreign registration is reported rather than thrown, so tooling can
+    /// show what is installed while another program owns Chrome's registration.
+    public func inventory() throws -> InstallationInventory {
+        let record = try receipt()
+        do {
+            let active = try registeredVersion(record)
+            return InstallationInventory(versions: record?.versions ?? [], active: active,
+                                         registration: active == nil ? "none" : "owned")
+        } catch SetupError.registrationConflict {
+            return InstallationInventory(versions: record?.versions ?? [], active: nil, registration: "foreign")
+        }
+    }
+    /// Points Chrome's registration at an already installed, intact version, for
+    /// rollback. Like install, it never replaces a registration it does not own.
+    public func activate(directory: String) throws -> SetupPayload {
+        try withLock {
+            guard let record = try receipt(),
+                  let payload = record.versions.first(where: { $0.directoryName == directory })
+            else { throw SetupError.installationDamaged }
+            _ = try registeredVersion(record)
+            let binary = executable(payload)
+            try safe(binary)
+            guard let data = try? bytes(binary), Self.digest(data) == payload.sha256,
+                  fm.isExecutableFile(atPath: binary.path)
+            else { throw SetupError.installationDamaged }
+            try makeDirectory(registration.deletingLastPathComponent())
+            try write(NativeEnrollment.manifest(executablePath: binary.path), to: registration)
+            return payload
         }
     }
     public func uninstall() throws {
