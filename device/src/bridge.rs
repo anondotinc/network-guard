@@ -12,9 +12,11 @@
 //! `CACHE_TTL`, measured from when the helper ran; a hit never extends an
 //! entry, so a reply is never more than 5 s older than the helper's read, well
 //! inside the wallet's 45 s status TTL. A hit is the helper's own bytes with
-//! only the 36-character request id replaced. Only `ok:true` replies are
-//! kept. A connect or app launch clears the cache, and a read that overlapped
-//! one is not stored.
+//! only the 36-character request id replaced. Only `ok:true` replies with the
+//! request's id and version are kept. A connect or app launch clears the
+//! cache, and a read that overlapped one is not stored. So does any frame the
+//! helper may read differently from this crate (`route::ambiguous`, for
+//! example a repeated key): it is never served from or stored in the cache.
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -112,8 +114,12 @@ impl<R: Runner> Bridge<R> {
             Route::Forward(request) => Some(request),
             Route::Reply(_) => None,
         };
-        let key: Option<Key> = request.filter(|r| r.is_read()).map(|r| (origin.to_string(), r.v, r.method.clone(), r.provider.clone()));
-        let mutation = request.is_some_and(Forward::is_mutation);
+        // The helper may read these bytes as another request than the key says,
+        // even a connect: never reuse them, and treat them as a possible mutation.
+        let ambiguous = route::ambiguous(frame);
+        let key: Option<Key> =
+            request.filter(|r| !ambiguous && r.is_read()).map(|r| (origin.to_string(), r.v, r.method.clone(), r.provider.clone()));
+        let mutation = ambiguous || request.is_some_and(Forward::is_mutation);
         let generation = {
             let mut cache = self.cache.lock().unwrap();
             if let (Some(key), Some(request)) = (&key, request) {
@@ -146,7 +152,7 @@ impl<R: Runner> Bridge<R> {
         match result {
             Ok(reply) => {
                 if let (Some(key), Some(request)) = (key, request) {
-                    if cache.generation == generation && route::reply_ok_with_id(&reply, &request.id) {
+                    if cache.generation == generation && route::reusable(&reply, request) {
                         cache.entries.insert(key, Entry { reply: reply.clone(), id: request.id.clone(), at: now });
                     }
                 }
@@ -380,6 +386,53 @@ mod tests {
         assert_eq!(bridge.cache_entries(), 0);
         let v9: Value = serde_json::from_slice(&bridge.respond(ORIGIN, &request(9, A, "appStatus", None))).unwrap();
         assert_eq!(v9, json!({ "v": 1, "ok": false, "error": "unsupportedVersion" }));
+    }
+
+    /// Reads requests the way the Swift helper's Foundation parser does: the
+    /// first of repeated keys wins (serde_json keeps the last).
+    struct FirstKeyWins {
+        runs: AtomicUsize,
+    }
+
+    fn first<'a>(text: &'a str, key: &str) -> &'a str {
+        let rest = &text[text.find(&format!("\"{key}\":")).unwrap() + key.len() + 3..];
+        match rest.strip_prefix('"') {
+            Some(quoted) => &quoted[..quoted.find('"').unwrap()],
+            None => &rest[..rest.find([',', '}']).unwrap()],
+        }
+    }
+
+    impl Runner for FirstKeyWins {
+        fn run(&self, _: &str, frame: &[u8]) -> Result<Vec<u8>, BridgeError> {
+            let run = self.runs.fetch_add(1, Ordering::SeqCst);
+            let text = std::str::from_utf8(frame).unwrap();
+            let (v, id, method) = (first(text, "v"), first(text, "id").to_ascii_lowercase(), first(text, "method"));
+            Ok(format!(r#"{{"id":"{id}","method":"{method}","ok":true,"run":{run},"v":{v}}}"#).into_bytes())
+        }
+    }
+
+    #[test]
+    fn repeated_keys_are_never_reused_and_clear_the_cache() {
+        let bridge = Bridge::new(FirstKeyWins { runs: AtomicUsize::new(0) });
+        let runs = || bridge.runner.runs.load(Ordering::SeqCst);
+        let parse = |reply: Vec<u8>| serde_json::from_slice::<Value>(&reply).unwrap();
+        let t0 = Instant::now();
+        // serde_json reads a v8 describe; the helper reads and answers a v4 describe.
+        let mixed = format!(r#"{{"v":4,"id":"{A}","method":"describe","v":8}}"#);
+        assert_eq!(parse(bridge.respond_at(ORIGIN, mixed.as_bytes(), t0))["v"], json!(4));
+        // A real v8 describe right after gets the helper's v8 answer, not that v4 one.
+        assert_eq!(parse(bridge.respond_at(ORIGIN, &request(8, B, "describe", None), t0))["v"], json!(8));
+        assert_eq!(runs(), 2);
+
+        // serde_json reads a v3 status (a read); the helper runs connectSelected.
+        bridge.respond_at(ORIGIN, &request(3, A, "status", Some("ivpn")), t0);
+        assert_eq!(bridge.cache_entries(), 2);
+        let connect = format!(r#"{{"v":3,"id":"{A}","method":"connectSelected","provider":"ivpn","method":"status"}}"#);
+        assert_eq!(parse(bridge.respond_at(ORIGIN, connect.as_bytes(), t0))["method"], json!("connectSelected"));
+        assert_eq!(runs(), 4, "served from the cache instead of reaching the helper");
+        assert_eq!(bridge.cache_entries(), 0, "reads from before the connect survived it");
+        bridge.respond_at(ORIGIN, &request(3, A, "status", Some("ivpn")), t0);
+        assert_eq!(runs(), 5);
     }
 
     #[test]

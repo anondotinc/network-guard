@@ -806,6 +806,218 @@
         "ok": false,
         "v": 3
       }
+    },
+    {
+      "name": "a UTF-8 byte-order mark is the helper's to answer while the app runs",
+      "app": "running",
+      "requestText": "\ufeff{\"v\":1,\"id\":\"01234567-89ab-4def-8123-456789abcdef\",\"method\":\"capabilities\"}",
+      "appReply": {
+        "capabilities": [
+          "read-status",
+          "read-only-prototype"
+        ],
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "v": 1
+      },
+      "helperResponse": {
+        "capabilities": [
+          "read-status",
+          "read-only-prototype"
+        ],
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "v": 1
+      },
+      "forwards": 1,
+      "launches": 0,
+      "response": {
+        "capabilities": [
+          "read-status",
+          "read-only-prototype"
+        ],
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "v": 1
+      }
+    },
+    {
+      "name": "a UTF-8 byte-order mark keeps the router envelope while the app is down",
+      "app": "stopped",
+      "requestText": "\ufeff{\"v\":1,\"id\":\"01234567-89ab-4def-8123-456789abcdef\",\"method\":\"capabilities\"}",
+      "helperResponse": {
+        "capabilities": [
+          "read-status",
+          "read-only-prototype"
+        ],
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "v": 1
+      },
+      "launches": 0,
+      "response": {
+        "v": 1,
+        "ok": false,
+        "error": "invalidRequest"
+      }
+    },
+    {
+      "name": "UTF-16LE with a byte-order mark keeps the router envelope while the app is down",
+      "app": "stopped",
+      "requestText": "\ufeff{\"v\":1,\"id\":\"01234567-89ab-4def-8123-456789abcdef\",\"method\":\"capabilities\"}",
+      "requestEncoding": "utf-16le",
+      "helperResponse": {
+        "capabilities": [
+          "read-status",
+          "read-only-prototype"
+        ],
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "v": 1
+      },
+      "launches": 0,
+      "response": {
+        "v": 1,
+        "ok": false,
+        "error": "invalidRequest"
+      }
+    },
+    {
+      "name": "UTF-16BE keeps the router envelope while the app is down",
+      "app": "stopped",
+      "requestText": "{\"v\":1,\"id\":\"01234567-89ab-4def-8123-456789abcdef\",\"method\":\"capabilities\"}",
+      "requestEncoding": "utf-16be",
+      "helperResponse": {
+        "capabilities": [
+          "read-status",
+          "read-only-prototype"
+        ],
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "v": 1
+      },
+      "launches": 0,
+      "response": {
+        "v": 1,
+        "ok": false,
+        "error": "invalidRequest"
+      }
+    },
+    {
+      "name": "a trailing comma keeps the router envelope while the app is down",
+      "app": "stopped",
+      "requestText": "{\"v\":1,\"id\":\"01234567-89ab-4def-8123-456789abcdef\",\"method\":\"capabilities\",}",
+      "helperResponse": {
+        "capabilities": [
+          "read-status",
+          "read-only-prototype"
+        ],
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "v": 1
+      },
+      "launches": 0,
+      "response": {
+        "v": 1,
+        "ok": false,
+        "error": "invalidRequest"
+      }
+    },
+    {
+      "name": "a repeated v is read by its last copy while the app is down",
+      "app": "stopped",
+      "requestText": "{\"v\":4,\"id\":\"01234567-89ab-4def-8123-456789abcdef\",\"method\":\"describe\",\"v\":8}",
+      "helperResponse": {
+        "helper": {
+          "capabilities": [
+            "describe",
+            "read-status",
+            "connect-selected",
+            "open-provider-app"
+          ],
+          "channel": "{{channel}}",
+          "protocols": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "providers": [
+            "mullvad",
+            "ivpn",
+            "nordvpn"
+          ],
+          "version": "{{version}}"
+        },
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "v": 4
+      },
+      "launches": 0,
+      "response": {
+        "v": 8,
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": false,
+        "error": "appNotRunning"
+      }
+    },
+    {
+      "name": "a repeated id is read by its last copy while the app is down",
+      "app": "stopped",
+      "requestText": "{\"v\":1,\"id\":\"01234567-89ab-4def-8123-456789abcdef\",\"method\":\"capabilities\",\"id\":\"fedcba98-7654-4321-8fed-cba987654321\"}",
+      "helperResponse": {
+        "capabilities": [
+          "read-status",
+          "read-only-prototype"
+        ],
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "v": 1
+      },
+      "launches": 0,
+      "response": {
+        "v": 1,
+        "id": "fedcba98-7654-4321-8fed-cba987654321",
+        "ok": false,
+        "error": "appNotRunning"
+      }
+    },
+    {
+      "name": "repeated keys are never v9, even when the last copies spell appStatus",
+      "app": "stopped",
+      "requestText": "{\"v\":1,\"id\":\"01234567-89ab-4def-8123-456789abcdef\",\"method\":\"capabilities\",\"method\":\"appStatus\",\"v\":9}",
+      "helperResponse": {
+        "capabilities": [
+          "read-status",
+          "read-only-prototype"
+        ],
+        "id": "01234567-89ab-4def-8123-456789abcdef",
+        "ok": true,
+        "v": 1
+      },
+      "launches": 0,
+      "response": {
+        "v": 1,
+        "ok": false,
+        "error": "unsupportedVersion"
+      }
+    },
+    {
+      "name": "repeated keys never start the app",
+      "app": "stopped",
+      "open": "running",
+      "requestText": "{\"v\":9,\"id\":\"01234567-89ab-4def-8123-456789abcdef\",\"method\":\"openApp\",\"method\":\"openApp\"}",
+      "helperResponse": {
+        "v": 1,
+        "ok": false,
+        "error": "unsupportedVersion"
+      },
+      "launches": 0,
+      "response": {
+        "v": 1,
+        "ok": false,
+        "error": "unsupportedVersion"
+      }
     }
   ]
 }

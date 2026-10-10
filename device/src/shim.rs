@@ -8,8 +8,12 @@
 //! - Everything else: relayed to the app byte for byte. When it can't be,
 //!   `appStarting` while a launch is in progress, else `appNotRunning`. A
 //!   background request never starts the app.
+//! - An app that is alive but does not answer its hello within
+//!   `ipc::HELLO_TIMEOUT` counts as not running: `appStatus` says so in about
+//!   that long, and requests get `appNotRunning` rather than waiting on it.
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use crate::ipc::ConnectError;
 use crate::launch::Opened;
 use crate::route::{self, AppInfo, Route, V9Method, APP_NOT_RUNNING, APP_STARTING, APP_START_FAILED};
 
@@ -18,6 +22,8 @@ pub enum AppState {
     Running(String),
     Starting,
     Stopped,
+    /// Alive (it took the connection) but it did not answer the hello in time.
+    Unresponsive,
 }
 
 /// What the shim needs from the world.
@@ -26,6 +32,8 @@ pub trait Host {
     fn app_state(&mut self) -> AppState;
     /// The app's reply to one request frame, or `None` when it can't be reached.
     fn forward(&mut self, frame: &[u8]) -> Option<Vec<u8>>;
+    /// Whether an `openApp` launch is in progress (no connection attempt).
+    fn launch_in_progress(&mut self) -> bool;
     fn start_at_login(&mut self) -> &'static str;
     /// Starts the app and waits for it (see `launch::open_app`).
     fn open_app(&mut self) -> Opened;
@@ -33,6 +41,9 @@ pub trait Host {
 
 pub fn respond(host: &mut impl Host, frame: &[u8], shim_version: &str) -> Vec<u8> {
     match route::route(frame) {
+        // Bytes this parser and the installed helper's may read differently
+        // (`route::ambiguous`): only the helper can answer them as it does today.
+        Route::Reply(bytes) if route::ambiguous(frame) => host.forward(frame).unwrap_or(bytes),
         Route::Reply(bytes) => bytes,
         Route::V9 { id, method: V9Method::AppStatus } => {
             let state = host.app_state();
@@ -41,7 +52,7 @@ pub fn respond(host: &mut impl Host, frame: &[u8], shim_version: &str) -> Vec<u8
         Route::V9 { id, method: V9Method::OpenApp } => match host.app_state() {
             AppState::Running(version) => route::open_app_reply(&id, &info(host, AppState::Running(version))),
             AppState::Starting => route::v9_failure(&id, APP_STARTING),
-            AppState::Stopped => match host.open_app() {
+            AppState::Stopped | AppState::Unresponsive => match host.open_app() {
                 Opened::Running(version) => route::open_app_reply(&id, &info(host, AppState::Running(version))),
                 Opened::Starting => route::v9_failure(&id, APP_STARTING),
                 Opened::Failed => route::v9_failure(&id, APP_START_FAILED),
@@ -51,10 +62,7 @@ pub fn respond(host: &mut impl Host, frame: &[u8], shim_version: &str) -> Vec<u8
             if let Some(reply) = host.forward(frame) {
                 return reply;
             }
-            match host.app_state() {
-                AppState::Starting => request.failure(APP_STARTING),
-                _ => request.failure(APP_NOT_RUNNING),
-            }
+            request.failure(if host.launch_in_progress() { APP_STARTING } else { APP_NOT_RUNNING })
         }
     }
 }
@@ -62,7 +70,7 @@ pub fn respond(host: &mut impl Host, frame: &[u8], shim_version: &str) -> Vec<u8
 fn info(host: &mut impl Host, state: AppState) -> AppInfo {
     let (running, version) = match state {
         AppState::Running(version) => (true, Some(version).filter(|v| !v.is_empty())),
-        AppState::Starting | AppState::Stopped => (false, None),
+        AppState::Starting | AppState::Stopped | AppState::Unresponsive => (false, None),
     };
     AppInfo { running, version, start_at_login: host.start_at_login() }
 }
@@ -113,10 +121,6 @@ impl LiveHost {
     pub fn launcher(origin: &str) -> Self {
         LiveHost { launcher: true, ..Self::new(origin) }
     }
-
-    fn launch_in_progress(&self) -> bool {
-        (!self.launcher && LAUNCHES.load(Ordering::SeqCst) > 0) || crate::launch::StartingLock::held_elsewhere()
-    }
 }
 
 impl Host for LiveHost {
@@ -124,23 +128,33 @@ impl Host for LiveHost {
         match crate::ipc::connect("shim", &self.origin) {
             Ok((_, version)) => AppState::Running(version),
             Err(_) if self.launch_in_progress() => AppState::Starting,
-            Err(_) => AppState::Stopped,
+            Err(ConnectError::Unresponsive) => AppState::Unresponsive,
+            Err(ConnectError::Unreachable(_)) => AppState::Stopped,
         }
     }
 
-    /// One retry covers an app that restarted between two messages on a long-lived port.
+    /// A kept connection may lead to an app that has since quit or restarted:
+    /// when it turns out closed, one fresh connection is tried. A deadline that
+    /// passed means the app is hung, and asking again would only wait again.
     fn forward(&mut self, frame: &[u8]) -> Option<Vec<u8>> {
-        for _ in 0..2 {
-            if self.conn.is_none() {
-                self.conn = crate::ipc::connect("shim", &self.origin).ok().map(|(stream, _)| stream);
-            }
-            let stream = self.conn.as_mut()?;
-            match crate::ipc::exchange(stream, frame) {
-                Ok(reply) => return Some(reply),
-                Err(_) => self.conn = None,
+        if let Some(mut stream) = self.conn.take() {
+            match crate::ipc::exchange(&mut stream, frame) {
+                Ok(reply) => {
+                    self.conn = Some(stream);
+                    return Some(reply);
+                }
+                Err(e) if crate::ipc::timed_out(&e) => return None,
+                Err(_) => {}
             }
         }
-        None
+        let (mut stream, _) = crate::ipc::connect("shim", &self.origin).ok()?;
+        let reply = crate::ipc::exchange(&mut stream, frame).ok()?;
+        self.conn = Some(stream);
+        Some(reply)
+    }
+
+    fn launch_in_progress(&mut self) -> bool {
+        (!self.launcher && LAUNCHES.load(Ordering::SeqCst) > 0) || crate::launch::StartingLock::held_elsewhere()
     }
 
     fn start_at_login(&mut self) -> &'static str {

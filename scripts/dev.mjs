@@ -21,10 +21,13 @@
 //         appStatus and a v8 describe through the bridge.
 //
 // `install --variant swift` from the device variant stops the app, removes its
-// login item and restores the backed-up manifest before installing. Every path
-// derives from HOME (or --home) and --applications, so tests use a temporary
-// home. macOS login items ignore HOME, so a temporary home never registers one.
-// No VPN provider is contacted: verification uses only describe and appStatus.
+// login item and restores the backed-up manifest before installing. So does a
+// device install that switched the host but could not start or verify the app.
+// `uninstall` removes the app, its run directory and the development helper
+// installation, the latter only when dev.mjs created it. Every path derives
+// from HOME (or --home) and --applications, so tests use a temporary home.
+// macOS login items ignore HOME, so a temporary home never registers one. No
+// VPN provider is contacted: verification uses only describe and appStatus.
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
@@ -123,7 +126,10 @@ export function writePrivate(file, text) {
 export function loadState(layout) {
   const state = readJson(layout.state);
   if (state && state.schemaVersion === 1) return state;
-  return { schemaVersion: 1, variant: null, swiftHistory: [], swiftManifestBackup: null, loginItem: false, appBackups: [] };
+  // swiftCreated: dev.mjs installed the helper into a home that had none, so
+  // `uninstall` may remove that installation. runDir: where the app keeps its
+  // socket and locks, which can lie outside the support folder.
+  return { schemaVersion: 1, variant: null, swiftHistory: [], swiftManifestBackup: null, swiftCreated: false, loginItem: false, appBackups: [], runDir: null };
 }
 
 export function saveState(layout, state) {
@@ -163,6 +169,24 @@ export function decodeFrames(data) {
     offset += length;
   }
   return replies;
+}
+
+/**
+ * Removes the app's run directory when it lies outside the support folder (a
+ * home too long for a socket path puts it in the per-user temporary folder).
+ * Only a real directory of this user's, named as the app names it for this
+ * channel and holding nothing but the app's lock and socket files.
+ * Returns `{ removed }`, or `{ left: <why> }`.
+ */
+export function removeRunDirectory(dir) {
+  const entry = lstatSync(dir, { throwIfNoEntry: false });
+  if (!entry) return { removed: false };
+  if (!entry.isDirectory() || entry.uid !== process.getuid() || !/^anon-guard-\d+-d-[0-9a-f]{12}$/.test(path.basename(dir)))
+    return { left: 'it is not the app\'s run directory' };
+  const unknown = readdirSync(dir).filter((name) => !['guard.lock', 'starting.lock', 'guard.sock'].includes(name));
+  if (unknown.length) return { left: `it holds ${unknown.join(', ')}` };
+  rmSync(dir, { recursive: true });
+  return { removed: true };
 }
 
 export const uuid = () => crypto.randomUUID();
@@ -263,7 +287,9 @@ export class Dev {
     const current = this.variant();
     if (current.kind === 'foreign') throw new Error(`The development host points at ${current.path}; not replacing a foreign registration.`);
     if (current.kind === 'device') this.leaveDevice();
+    const created = swiftVersions(this.layout).length === 0;
     const result = this.setup(app, ['--install']);
+    if (created) this.state.swiftCreated = true;
     this.state.lastSetupApp = app;
     this.remember(result.active.directory);
     this.state.variant = 'swift';
@@ -304,7 +330,14 @@ export class Dev {
   }
 
   appRunning() {
-    return this.appCli(['status'])?.value?.ok === true;
+    const status = this.appCli(['status'])?.value;
+    if (status?.error === 'appUnresponsive') throw new Error('The Device Guard app is running but not answering. Quit it (Activity Monitor) and try again.');
+    return status?.ok === true;
+  }
+
+  /** The app's support and run directories for this home, as the app derives them. */
+  appPaths() {
+    try { return this.appCli(['paths'])?.value ?? null; } catch { return null; }
   }
 
   quitApp() {
@@ -347,6 +380,7 @@ export class Dev {
     const source = this.deviceApp(from);
     this.assertOurApp(source);
     this.replaceApp(source);
+    this.state.runDir = this.appPaths()?.runDir ?? this.state.runDir ?? null;
 
     const printed = run(this.shim(), ['--print-host-manifest'], { json: true, home: this.home });
     const manifest = printed.value;
@@ -357,26 +391,50 @@ export class Dev {
       writePrivate(backup, readFileSync(this.layout.manifest, 'utf8'));
       this.state.swiftManifestBackup = path.relative(this.layout.dev, backup);
     }
-    writePrivate(this.layout.manifest, JSON.stringify(manifest, null, 2) + '\n');
-    writePrivate(this.layout.bridge, JSON.stringify({ schemaVersion: 1, helper: bridged }) + '\n');
-    this.state.variant = 'device';
-    this.save();
-
-    if (loginItem && this.realHome) {
-      const registered = this.loginItem('register');
-      this.state.loginItem = registered?.startAtLogin === 'enabled' || registered?.startAtLogin === 'requiresApproval';
+    try {
+      writePrivate(this.layout.manifest, JSON.stringify(manifest, null, 2) + '\n');
+      writePrivate(this.layout.bridge, JSON.stringify({ schemaVersion: 1, helper: bridged }) + '\n');
+      this.state.variant = 'device';
       this.save();
-      if (registered?.startAtLogin === 'requiresApproval') this.log('Approve "Anon Network Guard Dev" in System Settings → General → Login Items.');
-    } else if (loginItem) {
-      this.log('Temporary home: not registering a login item (macOS registers them per account, not per HOME).');
+      const loginItemError = this.registerLoginItem(loginItem);
+      const [opened] = this.shimSession([{ v: 9, id: uuid(), method: 'openApp' }], 20000);
+      if (!opened.ok) throw new Error(`openApp: ${opened.error}`);
+      const { status, describe } = this.checkDevice();
+      if (!status.app?.running || !describe.ok || describe.helper?.channel !== 'development')
+        throw new Error(`The app does not answer through the shim: ${JSON.stringify({ status, describe })}`);
+      this.log(`Device Guard app ${status.app.version} running (start at login: ${status.app.startAtLogin}), bridging to Swift helper ${describe.helper.version} (${bridged}).`);
+      return { status, describe, bridged, ...(loginItemError ? { loginItemError } : {}) };
+    } catch (error) {
+      error.message = `${error.message.replace(/\.?$/, '.')} ${this.undoSwitch()}`;
+      throw error;
     }
-    const [opened] = this.shimSession([{ v: 9, id: uuid(), method: 'openApp' }], 20000);
-    if (!opened.ok) throw new Error(`openApp: ${opened.error}`);
-    const { status, describe } = this.checkDevice();
-    if (!status.app?.running || !describe.ok || describe.helper?.channel !== 'development')
-      throw new Error(`The app does not answer through the shim: ${JSON.stringify({ status, describe })}`);
-    this.log(`Device Guard app ${status.app.version} running (start at login: ${status.app.startAtLogin}), bridging to Swift helper ${describe.helper.version} (${bridged}).`);
-    return { status, describe, bridged };
+  }
+
+  /** Turns on start at login in the account's real home. Returns the app's error, if any. */
+  registerLoginItem(wanted) {
+    if (!wanted) return null;
+    if (!this.realHome) {
+      this.log('Temporary home: not registering a login item (macOS registers them per account, not per HOME).');
+      return null;
+    }
+    const registered = this.loginItem('register');
+    this.state.loginItem = registered?.startAtLogin === 'enabled' || registered?.startAtLogin === 'requiresApproval';
+    this.save();
+    if (registered?.startAtLogin === 'requiresApproval') this.log('Approve "Anon Network Guard Dev" in System Settings → General → Login Items.');
+    const error = registered ? registered.error ?? null : 'the app gave no answer';
+    if (error) this.log(`Start at login is not on: ${error}. The app runs anyway; turn it on from the app's menu.`);
+    return error;
+  }
+
+  /** After a failed device install: gives the host back, and says where it points now. */
+  undoSwitch() {
+    try {
+      this.leaveDevice();
+      if (this.variant().kind === 'swift') return 'The development host is back on the Swift helper.';
+      return 'The development host is unregistered; `node scripts/dev.mjs install --variant swift` registers the Swift helper.';
+    } catch (undo) {
+      return `The development host still points at the Device Guard shim (${undo.message}); \`node scripts/dev.mjs install --variant swift\` gives it back to the Swift helper.`;
+    }
   }
 
   /**
@@ -523,6 +581,7 @@ export class Dev {
 
   uninstall({ from } = {}) {
     const removed = [];
+    const runDir = this.appPaths()?.runDir ?? this.state.runDir ?? null;
     if (existsSync(this.layout.app)) {
       this.assertOurApp(this.layout.app);
       this.quitApp();
@@ -534,11 +593,18 @@ export class Dev {
     }
     // The app may have been deleted by hand: still give the host back.
     if (this.variant().kind === 'device') this.leaveDevice();
-    if (swiftVersions(this.layout).length > 0) {
+    if (swiftVersions(this.layout).length > 0 && this.state.swiftCreated) {
       const variant = this.variant();
       if (variant.kind === 'foreign') throw new Error(`The development host points at ${variant.path}; not removing it.`);
       this.setup(this.setupApp(from ?? this.reusableSetupApp()), ['--uninstall']);
       removed.push(this.layout.helperRoot);
+    } else if (swiftVersions(this.layout).length > 0) {
+      this.log(`Left the development helper installation in ${this.layout.helperRoot} and its host registration: dev.mjs did not create it. The Setup app's Uninstall removes it.`);
+    }
+    if (runDir && !inside(runDir, this.layout.support)) {
+      const result = removeRunDirectory(runDir);
+      if (result.left) this.log(`Left ${runDir}: ${result.left}.`);
+      if (result.removed) removed.push(runDir);
     }
     if (existsSync(this.layout.support)) {
       const unknown = readdirSync(this.layout.support).filter((name) => !['run', 'bridge.json', 'dev'].includes(name));

@@ -144,6 +144,17 @@ rejects it before that (`invalidRequest`, `unsupportedVersion`,
 [`conformance/shim.json`](conformance/shim.json) pins its replies, and its
 malformed-request bytes match the Swift helper's.
 
+The shim's parser is stricter than Foundation's. Bytes that are not strict
+UTF-8 JSON (a byte-order mark, UTF-16, a trailing comma) or that repeat a
+top-level key may read differently to the Swift helper, so they are its to
+answer. While the app runs, they are relayed like any v1–v8 request. They are
+never v9 and never served from the bridge's cache. While the app can't be
+reached, the shim answers them by its own reading (for example
+`invalidRequest`); the `helperResponse` cases in `shim.json` pin those
+differences. "Running" means the app answers its socket hello within 2 s. An
+app that is alive but silent longer is reported as not running, and its
+requests get `appNotRunning`.
+
 In bridge mode, when the installed helper can't be run or doesn't answer, a
 well-formed request gets `{"v":<request v>,"id":<request id>,"ok":false,"error":"providerUnavailable"}`.
 The app may reuse an `ok:true` read (status, probe, describe, capabilities) for

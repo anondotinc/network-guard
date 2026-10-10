@@ -36,6 +36,9 @@ impl Host for FakeApp {
             _ => None,
         }
     }
+    fn launch_in_progress(&mut self) -> bool {
+        self.state == AppState::Starting
+    }
     fn start_at_login(&mut self) -> &'static str {
         self.start_at_login
     }
@@ -64,11 +67,18 @@ fn app(state: &str) -> FakeApp {
     }
 }
 
+/// `request` as compact JSON, or `requestText` as raw text in
+/// `requestEncoding` (`utf-8` by default, `utf-16le` or `utf-16be`).
 fn payload(case: &Value) -> Vec<u8> {
-    match (case.get("request"), case.get("requestText")) {
-        (Some(request), None) => serde_json::to_vec(request).unwrap(),
-        (None, Some(Value::String(text))) => text.as_bytes().to_vec(),
-        _ => panic!("case needs request or requestText: {case}"),
+    let utf16 = |text: &str, big: bool| -> Vec<u8> {
+        text.encode_utf16().flat_map(|unit| if big { unit.to_be_bytes() } else { unit.to_le_bytes() }).collect()
+    };
+    match (case.get("request"), case.get("requestText"), case.get("requestEncoding").and_then(Value::as_str)) {
+        (Some(request), None, None) => serde_json::to_vec(request).unwrap(),
+        (None, Some(Value::String(text)), None | Some("utf-8")) => text.as_bytes().to_vec(),
+        (None, Some(Value::String(text)), Some("utf-16le")) => utf16(text, false),
+        (None, Some(Value::String(text)), Some("utf-16be")) => utf16(text, true),
+        _ => panic!("case needs request, or requestText in a known encoding: {case}"),
     }
 }
 
@@ -124,7 +134,8 @@ fn shim_fixtures() {
 /// (malformed: decided by the request alone) or `appNotRunning` with the
 /// request's version and id (well-formed: it needs the helper). With the app
 /// running, well-formed requests are relayed and malformed ones still get the
-/// router's reply. Nothing starts the app.
+/// router's reply, unless only the helper can read them unambiguously (not
+/// strict JSON): those are relayed too. Nothing starts the app.
 #[test]
 fn every_router_case_through_the_shim() {
     let document = fixture("router.json");
@@ -147,8 +158,13 @@ fn every_router_case_through_the_shim() {
         let running_reply: Value = serde_json::from_slice(&respond(&mut running, &payload(case), VERSION)).unwrap();
         if expected["ok"] == json!(false) && parse_error {
             assert_eq!(stopped_reply, expected, "{name} (stopped)");
-            assert_eq!(running_reply, expected, "{name} (running)");
-            assert_eq!(running.forwards, 0, "{name}");
+            if guard_device::route::ambiguous(&payload(case)) {
+                assert_eq!(running_reply, json!({ "relayed": true }), "{name} (running)");
+                assert_eq!(running.forwards, 1, "{name}");
+            } else {
+                assert_eq!(running_reply, expected, "{name} (running)");
+                assert_eq!(running.forwards, 0, "{name}");
+            }
         } else {
             let id = expected["id"].as_str().unwrap_or_else(|| panic!("{name}: a well-formed reply has an id"));
             assert_eq!(stopped_reply, json!({ "v": expected["v"], "id": id, "ok": false, "error": "appNotRunning" }), "{name}");
@@ -160,6 +176,31 @@ fn every_router_case_through_the_shim() {
     assert!(checked >= 70, "{checked}");
 }
 
+/// The `shim.json` cases with a `helperResponse` are bytes the two helper
+/// parsers read differently (a byte-order mark, UTF-16, a trailing comma, a
+/// repeated key). While the app runs, each one is relayed and the installed
+/// helper's reply comes back unchanged; nothing is answered from this crate's
+/// reading of it, and nothing starts the app.
+#[test]
+fn bytes_only_the_helper_can_read_are_relayed_while_the_app_runs() {
+    let mut checked = 0;
+    for case in fixture("shim.json")["cases"].as_array().unwrap() {
+        if case.get("helperResponse").is_none() {
+            continue;
+        }
+        let name = case["name"].as_str().unwrap();
+        let frame = payload(case);
+        assert!(guard_device::route::ambiguous(&frame), "{name}");
+        let mut host = app("running");
+        let reply = br#"{"from":"the installed helper"}"#.to_vec();
+        host.reply = Some(reply.clone());
+        assert_eq!(respond(&mut host, &frame, VERSION), reply, "{name}");
+        assert_eq!((host.forwards, host.launches), (1, 0), "{name}");
+        checked += 1;
+    }
+    assert!(checked >= 8, "{checked}");
+}
+
 /// What a helper without v9 answers to a well-formed v9 request; the wallet
 /// reads it as "no Device Guard app" and behaves as before.
 const PLAIN_HELPER_V9: &[u8] = br#"{"error":"unsupportedVersion","ok":false,"v":1}"#;
@@ -167,8 +208,11 @@ const PLAIN_HELPER_V9: &[u8] = br#"{"error":"unsupportedVersion","ok":false,"v":
 /// With `NETWORK_GUARD_SWIFT_HELPER` set to a compiled helper of the same
 /// channel: every request the shim answers by itself (malformed, v9 included:
 /// rejected before any provider) gets the same bytes from that helper, and a
-/// well-formed v9 request gets `PLAIN_HELPER_V9`. Only these requests are
-/// sent, so no provider is ever read or controlled.
+/// well-formed v9 request gets `PLAIN_HELPER_V9`. A `shim.json` case with a
+/// `helperResponse` (bytes only the helper reads unambiguously) gets that
+/// response, which pins where the shim's own reading differs while the app is
+/// down. Only these requests are sent, and those cases ask only for
+/// `capabilities` or `describe`, so no provider is ever read or controlled.
 #[test]
 fn malformed_replies_match_the_compiled_helper_byte_for_byte() {
     use guard_device::route::{route, Route};
@@ -178,18 +222,29 @@ fn malformed_replies_match_the_compiled_helper_byte_for_byte() {
         eprintln!("skipped: set NETWORK_GUARD_SWIFT_HELPER to a compiled helper of this channel");
         return;
     };
+    /// The router's bytes exactly, or a fixture's `helperResponse` as parsed JSON.
+    enum Expect {
+        Bytes(Vec<u8>),
+        Json(Value),
+    }
     let mut frames = Vec::new();
     let mut malformed_v9 = 0;
+    let mut pinned = 0;
     for document in [fixture("router.json"), fixture("shim.json")] {
         for case in document["cases"].as_array().unwrap() {
             let frame = payload(case);
             let name = case["name"].as_str().unwrap().to_string();
+            if let Some(response) = case.get("helperResponse") {
+                pinned += 1;
+                frames.push((name, frame, Expect::Json(tokens(response))));
+                continue;
+            }
             let v9 = network_guard::wire::object(&frame).and_then(|o| network_guard::wire::int(o.get("v"))) == Some(9);
             match route(&frame) {
-                Route::V9 { .. } => frames.push((name, frame, PLAIN_HELPER_V9.to_vec())),
+                Route::V9 { .. } => frames.push((name, frame, Expect::Bytes(PLAIN_HELPER_V9.to_vec()))),
                 Route::Reply(reply) => {
                     malformed_v9 += usize::from(v9);
-                    frames.push((name, frame, reply));
+                    frames.push((name, frame, Expect::Bytes(reply)));
                 }
                 Route::Forward(_) => {}
             }
@@ -197,6 +252,7 @@ fn malformed_replies_match_the_compiled_helper_byte_for_byte() {
     }
     assert!(frames.len() >= 40, "{}", frames.len());
     assert!(malformed_v9 >= 6, "{malformed_v9}");
+    assert!(pinned >= 8, "{pinned}");
     // Up to 128 frames per helper session; one session per frame keeps it simple.
     for (name, frame, expected) in frames {
         let mut child = Command::new(&helper)
@@ -212,6 +268,10 @@ fn malformed_replies_match_the_compiled_helper_byte_for_byte() {
         drop(stdin);
         let output = child.wait_with_output().unwrap();
         assert_eq!(output.status.code(), Some(0), "{name}");
-        assert_eq!(&output.stdout[4..], &expected[..], "{name}: {}", String::from_utf8_lossy(&output.stdout[4..]));
+        let reply = &output.stdout[4..];
+        match expected {
+            Expect::Bytes(bytes) => assert_eq!(reply, &bytes[..], "{name}: {}", String::from_utf8_lossy(reply)),
+            Expect::Json(value) => assert_eq!(serde_json::from_slice::<Value>(reply).ok(), Some(value), "{name}"),
+        }
     }
 }

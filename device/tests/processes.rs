@@ -1,6 +1,7 @@
 //! The real shim and app binaries in a temporary home, with a fake installed
 //! helper (a shell script that frames like the real one). Never touches the
-//! user's installation, socket, login items or browser registrations.
+//! user's installation, socket, login items or browser registrations, and
+//! leaves no run directory behind, even one outside the temporary home.
 #![cfg(unix)]
 
 use std::fs;
@@ -128,12 +129,23 @@ printf '%s' "$reply"
         }
         false
     }
+
+    /// The app's run directory for this home, as the app itself derives it. A
+    /// long home puts it in the per-user temporary folder, outside `base`.
+    fn run_dir(&self) -> Option<PathBuf> {
+        self.app_cli(Path::new(APP), "paths")?.get("runDir")?.as_str().map(PathBuf::from)
+    }
 }
 
 impl Drop for Home {
     fn drop(&mut self) {
+        let run = self.run_dir();
         let _ = self.app_cli(Path::new(APP), "quit");
         let _ = fs::remove_dir_all(&self.base);
+        // Only ever this home's: the name carries a hash of it.
+        if let Some(run) = run {
+            let _ = fs::remove_dir_all(run);
+        }
     }
 }
 
@@ -167,9 +179,12 @@ impl Port {
     }
 
     fn send(&mut self, request: &Value) {
-        let body = request.to_string();
+        self.send_bytes(request.to_string().as_bytes());
+    }
+
+    fn send_bytes(&mut self, body: &[u8]) {
         self.input.write_all(&(body.len() as u32).to_le_bytes()).unwrap();
-        self.input.write_all(body.as_bytes()).unwrap();
+        self.input.write_all(body).unwrap();
         self.input.flush().unwrap();
     }
 
@@ -422,4 +437,103 @@ fn one_app_per_user() {
     assert_eq!(status["pid"], json!(running[0].id()));
     home.app_cli(Path::new(APP), "quit");
     assert!(running.pop().unwrap().wait().unwrap().success());
+}
+
+/// Stops a process for as long as it lives (a deadlock or a debugger looks the
+/// same to the shim), and lets it run again on drop.
+struct Stopped(u64);
+
+impl Stopped {
+    fn new(pid: u64) -> Stopped {
+        assert!(Command::new("kill").args(["-STOP", &pid.to_string()]).status().unwrap().success());
+        Stopped(pid)
+    }
+}
+
+impl Drop for Stopped {
+    fn drop(&mut self) {
+        let _ = Command::new("kill").args(["-CONT", &self.0.to_string()]).status();
+    }
+}
+
+/// An app that is alive but answers nothing must not stall the wallet: the
+/// shim gives up on its hello in about 2 s, says it is not running, and never
+/// retries into the hang. openApp waits up to 10 s for it, then fails.
+#[test]
+fn a_hung_app_is_reported_quickly() {
+    let home = Home::new("hung");
+    home.install_fake_helper();
+    let mut launcher = Port::open(&home, Path::new(SHIM));
+    assert_eq!(launcher.call(request(9, "openApp"))["ok"], json!(true));
+    assert_eq!(launcher.close(), 0);
+    let pid = home.app_cli(Path::new(APP), "status").unwrap()["pid"].as_u64().unwrap();
+    let stopped = Stopped::new(pid);
+
+    let quick = Duration::from_secs(6);
+    let mut port = Port::open(&home, Path::new(SHIM));
+    port.send(&request(9, "appStatus"));
+    let status = port.reply(quick);
+    assert_eq!((&status["app"]["running"], &status["app"]["version"]), (&json!(false), &Value::Null), "{status}");
+    for (v, method) in [(1, "status"), (8, "describe")] {
+        port.send(&request(v, method));
+        assert_eq!(port.reply(quick), not_running(v));
+    }
+    let started = Instant::now();
+    let cli = home.app_cli(Path::new(APP), "status").unwrap();
+    assert_eq!(cli, json!({ "ok": false, "error": "appUnresponsive" }));
+    assert!(started.elapsed() < quick, "{:?}", started.elapsed());
+
+    // Waits for the live copy rather than starting another, then gives up.
+    let started = Instant::now();
+    port.send(&request(9, "openApp"));
+    assert_eq!(port.reply(Duration::from_secs(16)), json!({ "v": 9, "id": ID, "ok": false, "error": "appStartFailed" }));
+    assert!(started.elapsed() >= Duration::from_secs(8), "{:?}", started.elapsed());
+    assert_eq!(home.helper_runs(), 0);
+
+    drop(stopped);
+    assert_eq!(port.call(request(9, "appStatus"))["app"]["running"], json!(true));
+    assert_eq!(home.app_cli(Path::new(APP), "status").unwrap()["pid"], json!(pid));
+    assert_eq!(port.close(), 0);
+}
+
+/// Bytes the shim's parser can't read unambiguously are the installed helper's
+/// to answer while the app runs: Foundation reads a byte-order mark (serde_json
+/// does not), and the two keep different copies of a repeated key. Such a
+/// frame is never answered from the bridge's cache.
+#[test]
+fn bytes_only_the_helper_can_read_are_relayed_while_the_app_runs() {
+    let home = Home::new("ambiguous");
+    home.install_fake_helper();
+    let bom = [b"\xef\xbb\xbf".as_slice(), request(1, "capabilities").to_string().as_bytes()].concat();
+    let repeated = format!(r#"{{"v":1,"id":"{ID2}","method":"status","id":"{ID}"}}"#);
+    let mut port = Port::open(&home, Path::new(SHIM));
+    // The app is down: the shim keeps its router's envelope.
+    port.send_bytes(&bom);
+    assert_eq!(port.reply(Duration::from_secs(15)), json!({ "v": 1, "ok": false, "error": "invalidRequest" }));
+    assert_eq!(port.call(request(9, "openApp"))["ok"], json!(true));
+    port.send_bytes(&bom);
+    assert_eq!(port.reply(Duration::from_secs(15)), json!({ "id": ID, "ok": true, "snapshot": { "run": 1 }, "v": 1 }));
+    for run in [2, 3] {
+        port.send_bytes(repeated.as_bytes());
+        assert_eq!(port.reply(Duration::from_secs(15))["snapshot"]["run"], json!(run));
+    }
+    assert_eq!(home.helper_runs(), 3);
+    assert_eq!(port.close(), 0);
+}
+
+/// A home too long for a socket path puts the app's run directory in the
+/// per-user temporary folder. Dropping the home removes it too.
+#[test]
+fn a_test_home_leaves_no_run_directory_behind() {
+    let home = Home::new("run-directory");
+    let run = home.run_dir().expect("anon-guard paths names the run directory");
+    let mut port = Port::open(&home, Path::new(SHIM));
+    assert_eq!(port.call(request(9, "openApp"))["ok"], json!(true));
+    assert_eq!(port.close(), 0);
+    assert!(run.join("guard.lock").is_file(), "{}", run.display());
+    if cfg!(target_os = "macos") {
+        assert!(!run.starts_with(&home.base), "{} is inside the home", run.display());
+    }
+    drop(home);
+    assert!(!run.exists(), "{} outlived its home", run.display());
 }

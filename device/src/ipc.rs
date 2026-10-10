@@ -20,8 +20,13 @@ use crate::VERSION;
 pub const IPC_VERSION: u64 = 1;
 /// Wallet frames are at most 4 KiB; the CLI's status reply is small too.
 pub const MAX_FRAME: usize = 64 * 1024;
+/// The exchange of one wallet request: longer than the bridge's helper deadline.
 /// A hung app must not hang the shim (and with it a wallet request) forever.
 pub const IO_TIMEOUT: Duration = Duration::from_secs(45);
+/// A running app answers the hello at once. This only bounds an app that is
+/// alive but not answering (stopped, deadlocked, in a debugger), so liveness
+/// checks and `appStatus` answer in about this long instead of `IO_TIMEOUT`.
+pub const HELLO_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub fn read_frame(r: &mut impl Read) -> io::Result<Option<Vec<u8>>> {
     let mut len = [0u8; 4];
@@ -190,22 +195,52 @@ pub fn check_peer(_: &Stream) -> io::Result<()> {
     Ok(())
 }
 
-/// Connects to the running app and exchanges the hello. Returns the stream and
-/// the app's version. `role` is "shim" or "cli". On Unix the socket counts only
-/// in this user's private run directory, with this user's process behind it.
-pub fn connect(role: &str, origin: &str) -> io::Result<(Stream, String)> {
+/// Why `connect` found no app to talk to.
+#[derive(Debug)]
+pub enum ConnectError {
+    /// Nothing answers: no socket, nothing listening on it, not this user's
+    /// directory or process, or a refused hello.
+    Unreachable(io::Error),
+    /// Something took the connection but did not answer the hello in time: the
+    /// app is alive but hung. Another copy would only find it running.
+    Unresponsive,
+}
+
+/// Connects to the running app and exchanges the hello within `HELLO_TIMEOUT`.
+/// Returns the stream, with `IO_TIMEOUT` for what follows, and the app's
+/// version. `role` is "shim" or "cli". On Unix the socket counts only in this
+/// user's private run directory, with this user's process behind it.
+pub fn connect(role: &str, origin: &str) -> Result<(Stream, String), ConnectError> {
+    connect_within(role, origin, HELLO_TIMEOUT)
+}
+
+/// `connect` with another bound on the hello (at least 100 ms).
+pub fn connect_within(role: &str, origin: &str, hello: Duration) -> Result<(Stream, String), ConnectError> {
+    use ConnectError::Unreachable;
     #[cfg(unix)]
-    check_run_dir()?;
-    let mut stream = Stream::connect(socket_name()?)?;
-    check_peer(&stream)?;
-    set_timeouts(&stream);
-    write_json(&mut stream, &json!({ "ipc": IPC_VERSION, "role": role, "origin": origin, "peer": VERSION }))?;
-    let hello = read_json(&mut stream)?.ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "app closed during hello"))?;
+    check_run_dir().map_err(Unreachable)?;
+    let mut stream = Stream::connect(socket_name().map_err(Unreachable)?).map_err(Unreachable)?;
+    check_peer(&stream).map_err(Unreachable)?;
+    set_timeouts(&stream, hello.max(Duration::from_millis(100)));
+    let reply = write_json(&mut stream, &json!({ "ipc": IPC_VERSION, "role": role, "origin": origin, "peer": VERSION }))
+        .and_then(|_| read_json(&mut stream));
+    let hello = match reply {
+        Ok(Some(hello)) => hello,
+        Ok(None) => return Err(Unreachable(io::Error::new(io::ErrorKind::UnexpectedEof, "app closed during hello"))),
+        Err(e) if timed_out(&e) => return Err(ConnectError::Unresponsive),
+        Err(e) => return Err(Unreachable(e)),
+    };
     if hello.get("ipc").and_then(Value::as_u64) != Some(IPC_VERSION) {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "ipcVersion"));
+        return Err(Unreachable(io::Error::new(io::ErrorKind::InvalidData, "ipcVersion")));
     }
     let version = hello.get("app").and_then(Value::as_str).unwrap_or_default().to_string();
+    set_timeouts(&stream, IO_TIMEOUT);
     Ok((stream, version))
+}
+
+/// A read or write deadline passed (Unix reports `EAGAIN` for a socket timeout).
+pub fn timed_out(error: &io::Error) -> bool {
+    matches!(error.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut)
 }
 
 /// One request frame out, one reply frame back.
@@ -216,7 +251,7 @@ pub fn exchange(stream: &mut Stream, frame: &[u8]) -> io::Result<Vec<u8>> {
 
 /// Unix sockets get read/write deadlines; named pipes have none (interprocess
 /// reports Unsupported), so on Windows a hung app can still hold a request.
-fn set_timeouts(stream: &Stream) {
-    let _ = stream.set_recv_timeout(Some(IO_TIMEOUT));
-    let _ = stream.set_send_timeout(Some(IO_TIMEOUT));
+fn set_timeouts(stream: &Stream, timeout: Duration) {
+    let _ = stream.set_recv_timeout(Some(timeout));
+    let _ = stream.set_send_timeout(Some(timeout));
 }

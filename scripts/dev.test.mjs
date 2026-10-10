@@ -1,12 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { DEV, Dev, canonical, classifyManifest, decodeFrames, encodeFrame, layoutFor, loadState, previousSwiftVersion, writePrivate } from './dev.mjs';
 import { infoPlist } from './device-bundle.mjs';
 
 // Temporary homes only; nothing here runs a helper, the app or an installer.
+// Their stand-ins are stubs, or a two-line shell script for the shim's
+// --print-host-manifest.
 function home(t) {
   const base = realpathSync(mkdtempSync(path.join(tmpdir(), 'anon-dev-test-')));
   t.after(() => rmSync(base, { recursive: true, force: true }));
@@ -153,5 +155,129 @@ test('leaving the device variant turns off a login item whoever turned it on', t
     dev.leaveDevice();
     assert.equal(actions.includes('unregister'), unregisters, String(startAtLogin));
     assert.equal(dev.state.loginItem, false);
+  }
+});
+
+const SHA = 'a'.repeat(64);
+
+/** A development helper installation as its installer lays it out, registered for Chrome. The helper is never executed. */
+function swiftInstall(layout, versions = ['0.1.4']) {
+  const receipt = {
+    schemaVersion: 1, owner: 'inc.anon.network-helper.setup.v1', channel: 'development',
+    versions: versions.map((version) => ({ schemaVersion: 1, version, channel: 'development', sha256: SHA })),
+  };
+  writePrivate(path.join(layout.helperRoot, 'installation.json'), JSON.stringify(receipt));
+  const helper = path.join(layout.helperRoot, 'versions', `${versions.at(-1)}-${SHA}`, 'anon-network-helper');
+  mkdirSync(path.dirname(helper), { recursive: true });
+  writeFileSync(helper, 'synthetic, never executed');
+  const registration = JSON.stringify(manifest(helper), null, 2) + '\n';
+  writePrivate(layout.manifest, registration);
+  return registration;
+}
+
+/** A synthetic app whose shim only prints its host manifest. */
+function deviceAppWithShim(root, layout) {
+  const app = syntheticApp(root, 'with-shim', 'synthetic build');
+  const shim = path.join(app, 'Contents/MacOS/anon-guard-host');
+  const printed = JSON.stringify(manifest(path.join(layout.app, 'Contents/MacOS/anon-guard-host')));
+  writeFileSync(shim, `#!/bin/sh\n[ "$1" = --print-host-manifest ] && printf '%s\\n' '${printed}'\n`);
+  chmodSync(shim, 0o755);
+  return app;
+}
+
+const macOnly = { skip: process.platform !== 'darwin' && 'ditto and plutil are macOS tools' };
+
+test('a device install that cannot start the app gives the host back to the Swift helper', macOnly, t => {
+  const root = home(t);
+  const dev = new Dev({ home: root, log: () => {} });
+  dev.quitApp = () => {};
+  const swift = swiftInstall(dev.layout);
+  // Stands in for the shim: the app could not be started (for example, macOS blocked it).
+  dev.shimSession = (requests) => requests.map(({ v, id }) => ({ v, id, ok: false, error: 'appStartFailed' }));
+  assert.throws(() => dev.installDevice({ from: deviceAppWithShim(root, dev.layout) }),
+    /^Error: openApp: appStartFailed\. The development host is back on the Swift helper\.$/);
+  assert.equal(readFileSync(dev.layout.manifest, 'utf8'), swift);
+  assert.ok(!existsSync(dev.layout.bridge));
+  assert.equal(loadState(dev.layout).variant, 'swift');
+});
+
+test('a login item that cannot be registered is reported, and the install goes on', macOnly, t => {
+  const root = home(t);
+  const logs = [];
+  const dev = new Dev({ home: root, log: (line) => logs.push(line) });
+  dev.quitApp = () => {};
+  swiftInstall(dev.layout);
+  // Only these stubs stand in for the app's login-item command; nothing is registered.
+  dev.realHome = true;
+  dev.loginItem = (action) => ({ action, startAtLogin: 'off', ...(action === 'register' ? { error: 'Operation not permitted' } : {}) });
+  dev.shimSession = (requests) => requests.map(({ v, id, method }) => (method === 'describe'
+    ? { v, id, ok: true, helper: { channel: 'development', version: '0.1.4' } }
+    : { v, id, ok: true, app: { running: true, version: '0.0.0', startAtLogin: 'off' }, shim: { version: '0.0.0' } }));
+  const result = dev.installDevice({ from: deviceAppWithShim(root, dev.layout) });
+  assert.equal(result.loginItemError, 'Operation not permitted');
+  assert.ok(logs.some((line) => line.includes('Start at login is not on: Operation not permitted')), logs.join('\n'));
+  assert.equal(dev.variant().kind, 'device');
+});
+
+test('installing the Swift helper records whether dev.mjs created the installation', t => {
+  for (const preexisting of [false, true]) {
+    const root = home(t);
+    const dev = new Dev({ home: root, log: () => {} });
+    if (preexisting) swiftInstall(dev.layout, ['0.1.0']);
+    const setupApp = path.join(path.dirname(root), 'Setup.app');
+    writePrivate(path.join(setupApp, 'Contents/Resources/payload.json'), JSON.stringify({ channel: 'development', version: '0.1.4' }));
+    dev.setupApp = () => setupApp;
+    dev.setup = () => {
+      swiftInstall(dev.layout, preexisting ? ['0.1.0', '0.1.4'] : ['0.1.4']);
+      return { ok: true, active: { directory: `0.1.4-${SHA}` } };
+    };
+    dev.describeSwift = () => ({ path: 'synthetic', version: `0.1.4-${SHA}`, describe: { version: '0.1.4', build: 7, channel: 'development' } });
+    dev.installSwift();
+    assert.equal(loadState(dev.layout).swiftCreated, !preexisting, `preexisting: ${preexisting}`);
+  }
+});
+
+test('uninstall removes the helper installation only when dev.mjs created it', t => {
+  for (const created of [false, true]) {
+    const root = home(t);
+    const logs = [];
+    const dev = new Dev({ home: root, log: (line) => logs.push(line) });
+    // Installed from the Setup window: 0.1.0, then 0.1.4.
+    const registration = swiftInstall(dev.layout, ['0.1.0', '0.1.4']);
+    dev.state.swiftCreated = created;
+    const calls = [];
+    dev.setupApp = () => '/synthetic/Setup.app';
+    dev.setup = (_, args) => { calls.push(args[0]); return { ok: true }; };
+    const { removed } = dev.uninstall();
+    assert.deepEqual(calls, created ? ['--uninstall'] : [], `created: ${created}`);
+    assert.equal(removed.includes(dev.layout.helperRoot), created);
+    if (!created) {
+      assert.equal(readFileSync(dev.layout.manifest, 'utf8'), registration);
+      assert.ok(logs.some((line) => line.includes('dev.mjs did not create it')), logs.join('\n'));
+    }
+  }
+});
+
+test('uninstall removes the app\'s run directory outside the support folder, and nothing that only resembles one', t => {
+  const root = home(t);
+  const dev = new Dev({ home: root, log: () => {} });
+  const temp = path.join(path.dirname(root), 'T');
+  const run = (name, files) => {
+    const dir = path.join(temp, name);
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    for (const file of files) writeFileSync(path.join(dir, file), '');
+    return dir;
+  };
+  const uid = process.getuid();
+  const ours = run(`anon-guard-${uid}-d-0123456789ab`, ['guard.lock', 'starting.lock', 'guard.sock']);
+  dev.state.runDir = ours;
+  assert.deepEqual(dev.uninstall().removed, [ours]);
+  assert.ok(!existsSync(ours));
+  for (const [name, files] of [[`anon-guard-${uid}-d-0123456789ab`, ['guard.lock', 'notes.txt']], ['anon-guard-elsewhere', []], [`anon-guard-${uid}-p-0123456789ab`, []]]) {
+    const dir = run(name, files);
+    dev.state.runDir = dir;
+    assert.deepEqual(dev.uninstall().removed, [], name);
+    assert.ok(existsSync(dir), name);
+    rmSync(dir, { recursive: true });
   }
 });

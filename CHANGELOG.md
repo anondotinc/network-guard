@@ -9,10 +9,16 @@
   requests. v1–v8 stay byte-identical: the app delegates them to the installed
   helper and relays its bytes, with a 5 s read cache that never extends the
   wallet's TTL. Malformed requests keep the router's envelope in every state.
+  Bytes only the Swift helper reads unambiguously (a byte-order mark, UTF-16,
+  a trailing comma, a repeated key) are relayed to it while the app runs and
+  never cached. An app that does not answer its hello within 2 s counts as not
+  running, so a hung app can't stall the wallet for 45 s.
   `conformance/shim.json` pins the shim. An old helper's
   `{v:1,ok:false,error:"unsupportedVersion"}` reply to v9 means no Device Guard app.
 - Add `scripts/dev.mjs` for one-command development installs. It can switch
   between the Swift helper and the Device Guard app, roll back, and uninstall.
+  A failed device install gives the host back to the helper. `uninstall`
+  removes a helper installation only when it created it.
   `scripts/build-device.mjs` builds the app bundle, signed ad hoc unless
   `SIGN_IDENTITY` is set.
 - Setup keeps every installed version for rollback and can now re-point Chrome's

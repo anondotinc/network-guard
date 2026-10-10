@@ -3,8 +3,10 @@
 //! wallet requests v1–v8 through the installed helper (see `bridge`).
 //!
 //!   anon-guard [--no-tray]                        run the app
-//!   anon-guard status | quit                      talk to the running app
+//!   anon-guard status | quit                      talk to the running app (exit 3: not
+//!                                                 running, 4: alive but not answering)
 //!   anon-guard login-item status | register | unregister | open-settings
+//!   anon-guard paths                              this user's support and run directories
 //!   anon-guard --version
 //!
 //! `--no-tray` (or `ANON_GUARD_NO_TRAY=1`) serves without an icon, for tests
@@ -53,6 +55,7 @@ fn main() -> ExitCode {
         Some("status") => cli(json!({ "op": "status" })),
         Some("quit") => cli(json!({ "op": "quit" })),
         Some("login-item") => login_cli(&args[1..]),
+        Some("paths") => paths(),
         Some("--version") => {
             attach_console();
             println!("{VERSION} {CHANNEL} {}", identity::BUNDLE_ID);
@@ -84,9 +87,13 @@ fn attach_console() {
 fn cli(request: Value) -> ExitCode {
     attach_console();
     match ipc::connect("cli", "") {
-        Err(_) => {
+        Err(ipc::ConnectError::Unreachable(_)) => {
             println!("{}", json!({ "ok": false, "error": "appNotRunning" }));
             ExitCode::from(3)
+        }
+        Err(ipc::ConnectError::Unresponsive) => {
+            println!("{}", json!({ "ok": false, "error": "appUnresponsive" }));
+            ExitCode::from(4)
         }
         Ok((mut stream, _)) => match write_json(&mut stream, &request).and_then(|_| read_json(&mut stream)) {
             Ok(Some(value)) => {
@@ -96,6 +103,28 @@ fn cli(request: Value) -> ExitCode {
             _ => ExitCode::from(1),
         },
     }
+}
+
+/// Where this user's app keeps its files, derived from `HOME` (`LOCALAPPDATA`
+/// on Windows) like everything else. Development tooling and tests remove the
+/// run directory with it, which can lie outside the support directory. Creates
+/// nothing.
+fn paths() -> ExitCode {
+    attach_console();
+    let text = |path: std::path::PathBuf| path.to_string_lossy().into_owned();
+    #[cfg(unix)]
+    let run = json!({ "runDir": text(identity::run_dir()) });
+    #[cfg(windows)]
+    let run = json!({ "pipe": identity::pipe_name() });
+    let mut out = json!({
+        "channel": CHANNEL,
+        "support": text(identity::support_dir()),
+        "bridge": text(identity::bridge_file()),
+        "helperRoot": text(identity::helper_root()),
+    });
+    out.as_object_mut().unwrap().extend(run.as_object().unwrap().clone());
+    println!("{out}");
+    ExitCode::SUCCESS
 }
 
 fn login_cli(args: &[String]) -> ExitCode {

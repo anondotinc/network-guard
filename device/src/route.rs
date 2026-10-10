@@ -7,13 +7,20 @@
 //! reply is fully determined by the request, so the shim and the app can give
 //! it without the helper, byte for byte as `conformance/router.json` pins it.
 //! Any other request is *well-formed* and needs the helper.
+//!
+//! Some bytes the two helper parsers read differently ([`ambiguous`]). The
+//! shim and the bridge leave those to the installed helper: they are never v9,
+//! never reused from the cache, and relayed whenever the app can be reached.
 use std::cell::Cell;
+use std::collections::HashSet;
+use std::fmt;
 
 use network_guard::build_info;
 use network_guard::error::{HelperError, Result};
 use network_guard::provider::{Adapter, Adapters, LegacyControl, Provider, Snapshot};
 use network_guard::router::{LockGuard, Router};
 use network_guard::wire::{self, response};
+use serde::de::{Deserialize, Deserializer, IgnoredAny, MapAccess, Visitor};
 use serde_json::{json, Map, Value};
 
 pub const V9: i64 = 9;
@@ -75,7 +82,7 @@ impl Forward {
 }
 
 pub fn route(payload: &[u8]) -> Route {
-    if let Some(v9) = v9(payload) {
+    if let Some(v9) = v9(payload).filter(|_| !ambiguous(payload)) {
         return v9;
     }
     let probe = Probe::default();
@@ -108,6 +115,52 @@ fn v9(payload: &[u8]) -> Option<Route> {
         _ => return None,
     };
     Some(Route::V9 { id: request.id, method })
+}
+
+/// Whether the two helpers' JSON parsers may read `payload` differently, so
+/// that only the installed helper can answer it as it does today.
+///
+/// serde_json (this crate and the Rust helper) reads strict UTF-8 JSON and
+/// keeps the last of repeated keys. Foundation (the Swift helper) also reads a
+/// byte-order mark, UTF-16 and UTF-32, trailing commas and lone surrogates, and
+/// keeps the first of repeated keys. Unambiguous bytes are strict JSON whose
+/// top-level object, if it is one, repeats no key. Nested objects don't
+/// matter: every router rejects a request with one, whatever it holds.
+pub fn ambiguous(payload: &[u8]) -> bool {
+    match serde_json::from_slice::<Value>(payload) {
+        Ok(Value::Object(_)) => !matches!(serde_json::from_slice::<UniqueKeys>(payload), Ok(UniqueKeys(true))),
+        Ok(_) => false,
+        Err(_) => true,
+    }
+}
+
+/// A JSON object, and whether each of its keys appears once.
+struct UniqueKeys(bool);
+
+impl<'de> Deserialize<'de> for UniqueKeys {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
+        deserializer.deserialize_map(UniqueKeysVisitor)
+    }
+}
+
+struct UniqueKeysVisitor;
+
+impl<'de> Visitor<'de> for UniqueKeysVisitor {
+    type Value = UniqueKeys;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("a JSON object")
+    }
+
+    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> std::result::Result<UniqueKeys, A::Error> {
+        let mut keys = HashSet::new();
+        let mut unique = true;
+        while let Some(key) = map.next_key::<String>()? {
+            map.next_value::<IgnoredAny>()?;
+            unique &= keys.insert(key);
+        }
+        Ok(UniqueKeys(unique))
+    }
 }
 
 /// What the shim reports about the app (`appStatus`, `openApp`).
@@ -215,10 +268,13 @@ pub fn swap_id(reply: &[u8], old: &str, new: &str) -> Option<Vec<u8>> {
     Some(swapped)
 }
 
-/// A JSON object's `ok` and `id`, for deciding whether a reply may be reused.
-pub fn reply_ok_with_id(reply: &[u8], id: &str) -> bool {
+/// Whether the helper's reply answers `request` as the cache keys it: `ok:true`,
+/// the request's id and the request's version.
+pub fn reusable(reply: &[u8], request: &Forward) -> bool {
     matches!(serde_json::from_slice::<Map<String, Value>>(reply),
-        Ok(object) if object.get("ok") == Some(&Value::Bool(true)) && object.get("id").and_then(Value::as_str) == Some(id))
+        Ok(object) if object.get("ok") == Some(&Value::Bool(true))
+            && object.get("id").and_then(Value::as_str) == Some(request.id.as_str())
+            && wire::int(object.get("v")) == Some(request.v))
 }
 
 #[cfg(test)]
@@ -283,7 +339,50 @@ mod tests {
         assert_eq!(swap_id(format!(r#"{{"id":"{ID}","x":{{"id":"{ID}"}}}}"#).as_bytes(), ID, OTHER), None);
         assert_eq!(swap_id(br#"{"ok":true}"#, ID, OTHER), None);
         assert_eq!(swap_id(reply.as_bytes(), ID, "short"), None);
-        assert!(reply_ok_with_id(reply.as_bytes(), ID));
-        assert!(!reply_ok_with_id(reply.as_bytes(), OTHER));
+    }
+
+    #[test]
+    fn a_reply_is_reusable_only_for_the_request_it_answers() {
+        let request = |v: i64, id: &str| Forward { v, id: id.into(), method: "status".into(), provider: None };
+        let reply = format!(r#"{{"id":"{ID}","ok":true,"snapshot":{{}},"v":1}}"#);
+        assert!(reusable(reply.as_bytes(), &request(1, ID)));
+        assert!(!reusable(reply.as_bytes(), &request(1, OTHER)));
+        // The helper answered another version than the key says (it read a repeated "v" another way).
+        assert!(!reusable(reply.as_bytes(), &request(6, ID)));
+        assert!(!reusable(reply.replace("true", "false").as_bytes(), &request(1, ID)));
+        assert!(!reusable(b"not json", &request(1, ID)));
+    }
+
+    #[test]
+    fn ambiguous_bytes_are_those_the_two_parsers_may_read_differently() {
+        let status = format!(r#"{{"v":1,"id":"{ID}","method":"status"}}"#);
+        for unambiguous in [status.clone(), "[]".into(), "1".into(), format!(r#"{{"\u0076":1,"id":"{ID}","method":"status"}}"#)] {
+            assert!(!ambiguous(unambiguous.as_bytes()), "{unambiguous}");
+        }
+        let utf16 = |text: &str, big: bool| -> Vec<u8> {
+            text.encode_utf16().flat_map(|unit| if big { unit.to_be_bytes() } else { unit.to_le_bytes() }).collect()
+        };
+        let ambiguous_frames: Vec<Vec<u8>> = vec![
+            [b"\xef\xbb\xbf".as_slice(), status.as_bytes()].concat(),
+            utf16(&status, false),
+            utf16(&format!("\u{feff}{status}"), true),
+            status.replace('}', ",}").into_bytes(),
+            format!(r#"{{"v":4,"id":"{ID}","method":"describe","v":8}}"#).into_bytes(),
+            format!(r#"{{"v":1,"id":"{ID}","method":"status","id":"{OTHER}"}}"#).into_bytes(),
+            format!(r#"{{"v":1,"id":"{ID}","method":"status","p":"\ud800"}}"#).into_bytes(),
+            b"not json".to_vec(),
+        ];
+        for frame in ambiguous_frames {
+            assert!(ambiguous(&frame), "{}", String::from_utf8_lossy(&frame));
+        }
+    }
+
+    #[test]
+    fn repeated_keys_are_never_v9() {
+        // serde_json reads v9 appStatus; Foundation reads v1 capabilities.
+        let frame = format!(r#"{{"v":1,"id":"{ID}","method":"capabilities","method":"appStatus","v":9}}"#);
+        assert!(!matches!(route(frame.as_bytes()), Route::V9 { .. }));
+        let open = format!(r#"{{"v":9,"id":"{ID}","method":"openApp","method":"openApp"}}"#);
+        assert!(!matches!(route(open.as_bytes()), Route::V9 { .. }));
     }
 }

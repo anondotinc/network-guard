@@ -129,7 +129,7 @@ node scripts/dev.mjs install --variant device   # the Device Guard app, bridging
 node scripts/dev.mjs install --variant swift    # switch back: stops the app, restores the helper's registration
 node scripts/dev.mjs status                     # active variant, versions, whether the app answers
 node scripts/dev.mjs rollback                   # the previous helper version, or the previous app build
-node scripts/dev.mjs uninstall                  # removes everything dev.mjs installed
+node scripts/dev.mjs uninstall                  # removes the app, and the helper if dev.mjs installed it
 ```
 
 - **`swift`** builds the development Setup app and installs its helper with the
@@ -145,7 +145,15 @@ node scripts/dev.mjs uninstall                  # removes everything dev.mjs ins
   up to three earlier app builds for `rollback`, one copy of each; reinstalling
   the build that is already installed saves nothing.
 - **Switching back to `swift`** turns the app's login item off, whether this
-  script or the app's tray menu turned it on.
+  script or the app's tray menu turned it on. A device install that switched
+  the host but could not start or verify the app switches back the same way,
+  and says so. If start at login can't be turned on, the install says why and
+  goes on.
+- **`uninstall`** removes the app, its backups, its login item and its run
+  directory, and gives the host back to the helper. It removes the development
+  helper installation (every version, and its registration) only when
+  `dev.mjs` created it in a home that had none. An installation from the
+  Setup window stays; its Uninstall button removes it.
 - **`--from <path>`** installs a prebuilt `Anon Network Guard Setup.app` or
   `Anon Network Guard Dev.app` instead of building. `--no-login-item` skips
   the login item.

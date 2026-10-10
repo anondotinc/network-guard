@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crate::identity::APP_EXE;
-use crate::ipc;
+use crate::ipc::{self, ConnectError};
 
 /// How long `openApp` waits for the started app to answer on its socket.
 pub const LAUNCH_WAIT: Duration = Duration::from_secs(10);
@@ -35,20 +35,26 @@ pub enum Opened {
 }
 
 /// Starts the app unless it already answers or another launch is in progress,
-/// then waits for it to answer.
+/// then waits for it to answer. The whole call takes about `LAUNCH_WAIT` at
+/// most: each hello is bounded by what is left of it. An app that is alive but
+/// not answering is waited for, not started again (a second copy would only
+/// find it running and exit); if it goes away meanwhile, it is started then.
 pub fn open_app(origin: &str) -> Opened {
-    let Some(_lock) = StartingLock::acquire() else { return Opened::Starting };
-    // It may have come up while another shim held the lock.
-    if let Ok((_, version)) = ipc::connect("shim", origin) {
-        return Opened::Running(version);
-    }
-    if start().is_err() {
-        return Opened::Failed;
-    }
     let deadline = Instant::now() + LAUNCH_WAIT;
+    let Some(_lock) = StartingLock::acquire() else { return Opened::Starting };
+    let mut started = false;
     loop {
-        if let Ok((_, version)) = ipc::connect("shim", origin) {
-            return Opened::Running(version);
+        let left = deadline.saturating_duration_since(Instant::now());
+        match ipc::connect_within("shim", origin, left.min(ipc::HELLO_TIMEOUT)) {
+            // It may have come up while another shim held the lock.
+            Ok((_, version)) => return Opened::Running(version),
+            Err(ConnectError::Unreachable(_)) if !started => {
+                if start().is_err() {
+                    return Opened::Failed;
+                }
+                started = true;
+            }
+            Err(_) => {}
         }
         if Instant::now() >= deadline {
             return Opened::Failed;
