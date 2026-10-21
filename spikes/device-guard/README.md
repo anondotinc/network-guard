@@ -23,7 +23,7 @@ This is throwaway code that answers the questions the Device Guard v1 plan said 
 SIGN_IDENTITY="Developer ID Application: …" scripts/build-macos.sh   # ad hoc without it
 ditto "out/Anon Network Guard Spike.app" ~/Applications/"Anon Network Guard Spike.app"
 APP=~/Applications/"Anon Network Guard Spike.app"
-PLAYWRIGHT_MODULE=…/scripts/artifact-video-exporter/node_modules/playwright \
+PLAYWRIGHT_MODULE=/path/to/node_modules/playwright \
   node test/native-e2e.mjs --headless --shim "$APP/Contents/MacOS/anon-guard-host" \
   --app-bin "$APP/Contents/MacOS/anon-guard" --start "open -g '$APP'"
 scripts/notarize-macos.sh <notarytool-profile>   # operator step: notarize, staple, quarantine test
@@ -65,7 +65,7 @@ All five checks passed in 3 of 3 runs.
 ### Gatekeeper and notarization
 
 - Not notarized: `spctl` rejects the bundle as "Unnotarized Developer ID". It runs locally because nothing quarantined it.
-- Notarizing, and the quarantined-download case, are waiting on `scripts/notarize-macos.sh`. That needs a notarytool profile, and this Mac's keychain has none.
+- Notarizing, and the quarantined-download case, are waiting on `scripts/notarize-macos.sh`. That needs a notarytool keychain profile, which these runs did not have.
 
 ### Findings for v1
 
