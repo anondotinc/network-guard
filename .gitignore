@@ -18,3 +18,4 @@ dist/
 *.keystore
 *.mobileprovision
 *.log
+device/target/

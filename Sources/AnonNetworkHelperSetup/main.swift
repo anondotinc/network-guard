@@ -121,6 +121,18 @@ final class SetupDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 }
 
+#if DEBUG
+// Development builds only: headless install/rollback for scripts/dev.mjs. Same
+// UserInstaller and checks as the window; production keeps only the window.
+let commandArguments = Array(CommandLine.arguments.dropFirst())
+if SetupCommandLine.handles(commandArguments) {
+    let result = SetupCommandLine.run(commandArguments, resources: Bundle.main.resourceURL,
+                                      home: FileManager.default.homeDirectoryForCurrentUser)
+    FileHandle.standardOutput.write(Data((result.output + "\n").utf8))
+    exit(result.status)
+}
+#endif
+
 let app = NSApplication.shared
 app.setActivationPolicy(.regular)
 let delegate = SetupDelegate()

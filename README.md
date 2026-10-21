@@ -118,6 +118,62 @@ The [CI workflow](.github/workflows/ci.yml) tests and builds from a checkout wit
 signing keys, provider accounts or wallet state. It does not publish artifacts.
 Cross-compilation is not a substitute for live Intel and clean-Mac acceptance.
 
+## Development install
+
+One command builds and installs the development channel for your macOS user:
+host `inc.anon.network_helper.dev`, for the development extension only.
+
+```sh
+node scripts/dev.mjs install                    # the Swift helper (default variant)
+node scripts/dev.mjs install --variant device   # the Device Guard app, bridging to that helper
+node scripts/dev.mjs install --variant swift    # switch back: stops the app, restores the helper's registration
+node scripts/dev.mjs status                     # active variant, versions, whether the app answers
+node scripts/dev.mjs rollback                   # the previous helper version, or the previous app build
+node scripts/dev.mjs uninstall                  # removes the app, and the helper if dev.mjs installed it
+```
+
+- **`swift`** builds the development Setup app and installs its helper with the
+  same installer as the Setup window, without the window. It keeps earlier
+  versions for `rollback`. Then it runs a real v8 `describe` against the
+  registered host path.
+- **`device`** builds the [Device Guard app](device/README.md) and installs it
+  as `~/Applications/Anon Network Guard Dev.app`. It signs ad hoc unless
+  `SIGN_IDENTITY` is set. It saves the helper's host manifest, points the host
+  at the app's shim, and registers the app's LaunchAgent login item. Then it
+  starts the app with v9 `openApp`. The app answers v1–v8 through the installed
+  helper, so this variant installs the helper first if it is missing. It keeps
+  up to three earlier app builds for `rollback`, one copy of each; reinstalling
+  the build that is already installed saves nothing.
+- **Switching back to `swift`** turns the app's login item off, whether this
+  script or the app's tray menu turned it on. A device install that switched
+  the host but could not start or verify the app switches back the same way,
+  and says so. If start at login can't be turned on, the install says why and
+  goes on.
+- **`uninstall`** removes the app, its backups, its login item and its run
+  directory, and gives the host back to the helper. It removes the development
+  helper installation (every version, and its registration) only when
+  `dev.mjs` created it in a home that had none. An installation from the
+  Setup window stays; its Uninstall button removes it.
+- **`--from <path>`** installs a prebuilt `Anon Network Guard Setup.app` or
+  `Anon Network Guard Dev.app` instead of building. `--no-login-item` skips
+  the login item.
+- **Paths.** Every path follows `HOME`, or `--home`, plus `--applications`. A
+  temporary home gives a fully separate install. macOS registers login items
+  per account, not per home, so a temporary home never gets one. Verification
+  sends only `describe` and `appStatus`, never a provider operation.
+
+To try the device variant end to end without touching your own install, use a
+temporary home. The Chromium harness uses a key-pinned test extension in a
+temporary profile (it needs Playwright):
+
+```sh
+DEV_HOME="$(mktemp -d)"
+node scripts/dev.mjs install --variant device --home "$DEV_HOME"
+PLAYWRIGHT_MODULE=/path/to/node_modules/playwright node device/test/native-e2e.mjs --home "$DEV_HOME" --headless
+node scripts/dev.mjs install --variant swift --home "$DEV_HOME"
+node scripts/dev.mjs uninstall --home "$DEV_HOME"
+```
+
 ## Versions and repository scope
 
 [`BuildVersion.swift`](Sources/NetworkHelperCore/BuildVersion.swift) is the single
@@ -127,6 +183,8 @@ The maintained branch is `master`; release tags identify approved immutable buil
 
 - `Sources/`, `Tests/`, `scripts/`: helper, setup app and local verification.
 - `rust/`: the Linux and Windows helper and setup program.
+- `device/`: the Device Guard app and its Chrome host shim (bridge mode, v9).
+- `spikes/device-guard/`: the M0 spike and its platform findings, kept as history.
 - `conformance/`: wire fixtures every helper must pass.
 - `release/`: optional maintainer tooling for Guard releases and Anon's Android
   APK/catalog pipeline. It is **not installed with the helper** and is not needed

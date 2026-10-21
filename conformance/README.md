@@ -20,6 +20,7 @@ the recorded JSON, and commit it. A runner never rewrites an existing
 | `frames.json` | Length-prefixed framing: limits, byte order, truncation, clean EOF. |
 | `origins.json` | The caller-origin check applied to `argv[1]`. |
 | `status-parsers.json` | Provider CLI output to tunnel state, or a failure. |
+| `shim.json` | The Device Guard host shim (v9 and its app-state replies). Run by `device/tests/conformance.rs`. |
 
 ## `router.json`
 
@@ -79,3 +80,45 @@ These are the values the fixtures expect.
 | ivpn | read-status, connect-selected | read-status, connect-selected |
 | nordvpn | open-app | open-app |
 | protonvpn | open-app, read-status | open-app |
+
+## `shim.json`
+
+The Device Guard host shim only (CONTRACTS.md, "Device Guard v9"). Each case
+sets what the app is doing and pins the shim's reply to one frame:
+
+```json
+{
+  "name": "openApp starts a stopped app and reports it",
+  "app": "stopped",
+  "open": "running",
+  "request": { "v": 9, "id": "…", "method": "openApp" },
+  "response": { "v": 9, "id": "…", "ok": true, "app": { "running": true, "version": "{{version}}", "startAtLogin": "off" } },
+  "launches": 1
+}
+```
+
+- `app` is `running`, `stopped` or `starting` (another launch holds the lock).
+- `startAtLogin` (default `off`) is what the platform reports.
+- `open` is how a launch ends: `running`, `failed` or `starting` (lost the race).
+- `appReply` is what a running app returns for a relayed request. The shim's
+  reply must be those bytes, unchanged.
+- `requestEncoding` (`utf-8` by default, `utf-16le` or `utf-16be`) encodes
+  `requestText`, which may start with a byte-order mark (`\ufeff`).
+- `helperResponse` marks bytes the two helper parsers read differently (not
+  strict JSON, or a repeated key). It is what the Swift helper answers. The
+  runner checks that such bytes are relayed whenever the app runs, and
+  `response` pins what the shim answers by its own reading while the app is
+  down. These cases ask only for `capabilities` or `describe`.
+- `launches` and `forwards` count app starts and relayed requests.
+- `{{version}}` is the shim's (and app's) version.
+
+The same runner also derives the shim's reply for every `router.json` case.
+With the app stopped, a malformed request gets its router reply. Any other
+request gets `appNotRunning` with the router's `v` and `id`. With the app
+running, malformed requests still get their router reply, and the rest are
+relayed. A malformed request that is not strict JSON is relayed too while the
+app runs. Setting `NETWORK_GUARD_SWIFT_HELPER` to a compiled helper also checks
+that the shim's malformed-request replies, malformed v9 included, match that
+helper byte for byte. It also checks that the helper answers well-formed v9
+with `{"v":1,"ok":false,"error":"unsupportedVersion"}`, and each
+`helperResponse`.

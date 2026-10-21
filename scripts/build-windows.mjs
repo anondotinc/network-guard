@@ -35,7 +35,9 @@ function must(command, argv, options) {
   return result.stdout;
 }
 
-must('cargo', ['build', '--release', '--locked', '--target', target, '--manifest-path', path.join(root, 'rust', 'Cargo.toml'), ...(channel === 'development' ? ['--features', 'development'] : [])], { stdio: ['ignore', 'inherit', 'inherit'] });
+// Cargo reads .cargo/config.toml from the working directory, not the manifest's,
+// so run it in rust/ for that folder's static C runtime flags.
+must('cargo', ['build', '--release', '--locked', '--target', target, '--manifest-path', path.join(root, 'rust', 'Cargo.toml'), ...(channel === 'development' ? ['--features', 'development'] : [])], { cwd: path.join(root, 'rust'), stdio: ['ignore', 'inherit', 'inherit'] });
 const built = path.join(targetDir, target, 'release');
 const folder = path.join(root, 'dist', 'windows', channel, `anon-network-guard-${buildVersion.version}-windows-${arch}${channel === 'development' ? '-development' : ''}`);
 rmSync(folder, { recursive: true, force: true });

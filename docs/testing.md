@@ -15,6 +15,12 @@ node scripts/build-setup.mjs --channel development
 node scripts/test-wire.mjs --channel development
 ```
 
+The Device Guard app and shim have their own Rust tests, including fixtures
+in `conformance/shim.json` and the real binaries in a temporary home with a fake
+helper (`cd device && cargo test --features development`). The development
+install (`scripts/dev.mjs`) and the Chromium harness (`device/test/native-e2e.mjs`)
+run against a temporary home; see the README's development install section.
+
 The [CI workflow](../.github/workflows/ci.yml) runs these same checks with read-only
 repository permissions and pinned actions. It does not use provider operations,
 signing keys, release credentials or upload artifacts. Fork pull requests must

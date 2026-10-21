@@ -39,12 +39,20 @@ jobs:
       - name: Shared wire fixtures against the Rust helper
         working-directory: rust
         run: cargo test --locked --test conformance
+      - name: Device Guard app and host shim (fixtures, real binaries in a temporary home)
+        working-directory: device
+        run: |
+          cargo test --locked --features development
+          cargo test --locked
       - name: Universal setup builds and static wire checks
         run: |
           node scripts/build-setup.mjs --channel production
           node scripts/test-wire.mjs --channel production
           node scripts/build-setup.mjs --channel development
           node scripts/test-wire.mjs --channel development
+      - name: Device Guard shim replies match the compiled development helper byte for byte
+        working-directory: device
+        run: NETWORK_GUARD_SWIFT_HELPER="$GITHUB_WORKSPACE/dist/development/Anon Network Guard Setup.app/Contents/Resources/anon-network-helper" cargo test --locked --features development --test conformance
       - name: Verify tracked source is unchanged
         run: git diff --exit-code
 
@@ -77,6 +85,12 @@ jobs:
           cargo clippy --locked --all-targets -- -D warnings
           cargo clippy --locked --all-targets --features development -- -D warnings
           cargo test --locked
+          cargo test --locked --features development
+      - name: Device Guard app and host shim
+        working-directory: device
+        run: |
+          cargo fmt --check
+          cargo clippy --locked --all-targets --features development -- -D warnings
           cargo test --locked --features development
       - name: Static builds with wire and setup checks
         run: |
@@ -121,6 +135,13 @@ jobs:
           cargo fmt --check
           cargo clippy --locked --all-targets -- -D warnings
           cargo test --locked
+          cargo test --locked --features development
+      - name: Device Guard app and host shim
+        working-directory: device
+        shell: bash
+        run: |
+          cargo fmt --check
+          cargo clippy --locked --all-targets --features development -- -D warnings
           cargo test --locked --features development
       - name: Builds with wire checks and a per-user install, check and uninstall
         env:

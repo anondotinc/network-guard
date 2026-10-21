@@ -244,9 +244,18 @@ impl Installer {
         Ok(found)
     }
 
-    fn with_lock<T>(&self, operation: impl FnOnce() -> Result<T>) -> Result<T> {
+    /// `Local\<name>` for the setup mutex. A test installer (scratch registry
+    /// prefix) gets its own name, so parallel tests never contend for the real one.
+    fn lock_name(&self) -> String {
         let name = format!("inc.anon.network-guard.setup.{}", build_info::CHANNEL);
-        let _lock = lock::exclusive(&name, SetupError::InstallBusy, SetupError::InstallBusy)?;
+        if self.registry_prefix.is_empty() {
+            return name;
+        }
+        format!("{name}.{}", &digest(self.registry_prefix.as_bytes())[..16])
+    }
+
+    fn with_lock<T>(&self, operation: impl FnOnce() -> Result<T>) -> Result<T> {
+        let _lock = lock::exclusive(&self.lock_name(), SetupError::InstallBusy, SetupError::InstallBusy)?;
         operation()
     }
 
