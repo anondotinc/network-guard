@@ -4,7 +4,7 @@ A minimal, local bridge between the Anon wallet extension and your existing VPN
 app. The wallet can check the VPN's reported connection state and, with your
 separate consent, request a connection using your existing provider settings.
 
-**0.1.4, build 7 · Chrome on macOS 13+**
+**0.1.5, build 8 · Chrome on macOS 13+**
 
 The signed, notarized production installer is available from the
 [Network Guard setup page](https://anon.inc/setup/network-guard).

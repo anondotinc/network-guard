@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.5 — build 8 — signing candidate (2026-10-21)
 
 - Add the Device Guard app (`device/`, promoted from the M0 spike) with bridge
   mode and the v9 host-shim contract: `appStatus` (answered by the shim even
