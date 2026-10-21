@@ -1482,10 +1482,23 @@
           "id": "01234567-89ab-4def-8123-456789abcdef",
           "ok": false,
           "v": 6
+        },
+        "windows": {
+          "error": "unsupportedMethod",
+          "id": "01234567-89ab-4def-8123-456789abcdef",
+          "ok": false,
+          "v": 6
         }
       },
       "callsByPlatform": {
         "linux": {
+          "protonvpn": {
+            "reads": 0,
+            "connects": 0,
+            "opens": 0
+          }
+        },
+        "windows": {
           "protonvpn": {
             "reads": 0,
             "connects": 0,
@@ -1612,6 +1625,42 @@
           "id": "01234567-89ab-4def-8123-456789abcdef",
           "ok": true,
           "v": 8
+        },
+        "windows": {
+          "helper": {
+            "arch": "{{arch}}",
+            "build": "{{build}}",
+            "channel": "{{channel}}",
+            "platform": "{{platform}}",
+            "protocols": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              8
+            ],
+            "providers": {
+              "ivpn": [
+                "read-status",
+                "connect-selected"
+              ],
+              "mullvad": [
+                "read-status",
+                "connect-selected"
+              ],
+              "nordvpn": [
+                "open-app"
+              ],
+              "protonvpn": [
+                "open-app"
+              ]
+            },
+            "version": "{{version}}"
+          },
+          "id": "01234567-89ab-4def-8123-456789abcdef",
+          "ok": true,
+          "v": 8
         }
       }
     },
@@ -1662,6 +1711,42 @@
       },
       "responseByPlatform": {
         "linux": {
+          "helper": {
+            "arch": "{{arch}}",
+            "build": "{{build}}",
+            "channel": "{{channel}}",
+            "platform": "{{platform}}",
+            "protocols": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              8
+            ],
+            "providers": {
+              "ivpn": [
+                "read-status",
+                "connect-selected"
+              ],
+              "mullvad": [
+                "read-status",
+                "connect-selected"
+              ],
+              "nordvpn": [
+                "open-app"
+              ],
+              "protonvpn": [
+                "open-app"
+              ]
+            },
+            "version": "{{version}}"
+          },
+          "id": "01234567-89ab-4def-8123-456789abcdef",
+          "ok": true,
+          "v": 8
+        },
+        "windows": {
           "helper": {
             "arch": "{{arch}}",
             "build": "{{build}}",
