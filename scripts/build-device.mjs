@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Builds the Device Guard app bundle (device/) for this Mac's architecture:
+// Builds the universal (arm64 + x86_64) Device Guard app bundle (device/):
 //   dist/device/<channel>/<App name>.app
-// Signed inside out (the nested host shim with its own identifier, then the
+// Both Rust targets are built for macOS 13 and joined with lipo. Signed inside out (the nested host shim with its own identifier, then the
 // bundle; never --deep), ad hoc unless SIGN_IDENTITY names a "Developer ID
 // Application: …" identity. Nothing is installed, registered or started.
 //
@@ -11,7 +11,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { buildIcon } from './build-icon.mjs';
-import { agentPlist, assertBundleLayout, identity, infoPlist } from './device-bundle.mjs';
+import { agentPlist, assertBundleLayout, identity, infoPlist, minimumSystemVersion, missingRustTargets, rustTargets } from './device-bundle.mjs';
 import { buildVersion } from './version.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -22,14 +22,30 @@ function run(command, args, options = {}) {
   return result;
 }
 
+/** Throws, naming the `rustup target add` command, unless both macOS targets are installed. */
+function assertRustTargets() {
+  const listed = spawnSync('rustup', ['target', 'list', '--installed'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] });
+  if (listed.error || listed.status !== 0) {
+    throw new Error(`Could not list the installed Rust targets with rustup. Install the targets with: rustup target add ${rustTargets.join(' ')}`);
+  }
+  const missing = missingRustTargets(listed.stdout);
+  if (missing.length > 0) {
+    throw new Error(`The universal Device Guard build needs the Rust target(s) ${missing.join(', ')}. Install with: rustup target add ${missing.join(' ')}`);
+  }
+}
+
 export function buildDevice({ channel, out = path.join(root, 'dist', 'device', channel), signIdentity = process.env.SIGN_IDENTITY }) {
   if (process.platform !== 'darwin') throw new Error('The Device Guard bundle is built on macOS.');
   const id = identity(channel);
+  assertRustTargets();
   const manifest = path.join(root, 'device', 'Cargo.toml');
   const targetDir = process.env.CARGO_TARGET_DIR ?? path.join(root, 'device', 'target');
-  run('cargo', ['build', '--release', '--locked', '--manifest-path', manifest, '--target-dir', targetDir,
-    ...(channel === 'development' ? ['--features', 'development'] : [])]);
-  const binaries = path.join(targetDir, 'release');
+  // One build per architecture, each targeting macOS 13 (the bundle's LSMinimumSystemVersion).
+  const env = { ...process.env, MACOSX_DEPLOYMENT_TARGET: minimumSystemVersion };
+  for (const triple of rustTargets) {
+    run('cargo', ['build', '--release', '--locked', '--manifest-path', manifest, '--target-dir', targetDir, '--target', triple,
+      ...(channel === 'development' ? ['--features', 'development'] : [])], { env });
+  }
 
   const bundle = path.join(out, id.bundleName);
   assertBundleLayout(bundle, id);
@@ -39,8 +55,10 @@ export function buildDevice({ channel, out = path.join(root, 'dist', 'device', c
   writeFileSync(path.join(contents, 'Info.plist'), infoPlist(id, buildVersion));
   writeFileSync(path.join(contents, 'Library/LaunchAgents', id.agentPlist), agentPlist(id));
   for (const name of ['anon-guard', 'anon-guard-host']) {
-    copyFileSync(path.join(binaries, name), path.join(contents, 'MacOS', name));
-    chmodSync(path.join(contents, 'MacOS', name), 0o755);
+    const destination = path.join(contents, 'MacOS', name);
+    run('/usr/bin/xcrun', ['lipo', '-create', ...rustTargets.map((triple) => path.join(targetDir, triple, 'release', name)), '-output', destination]);
+    chmodSync(destination, 0o755);
+    run('/usr/bin/xcrun', ['lipo', destination, '-verify_arch', 'arm64', 'x86_64']);
   }
   copyFileSync(path.join(root, 'LICENSE'), path.join(contents, 'Resources/LICENSE'));
   copyFileSync(path.join(root, 'assets/LICENSE'), path.join(contents, 'Resources/BrandAssets-LICENSE'));

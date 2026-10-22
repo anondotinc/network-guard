@@ -21,6 +21,18 @@ export const channels = {
   },
 };
 
+/** The oldest macOS the app runs on: LSMinimumSystemVersion, and the deployment target of both slices. */
+export const minimumSystemVersion = '13.0';
+
+/** The Rust targets joined into each universal binary, in lipo order. */
+export const rustTargets = ['aarch64-apple-darwin', 'x86_64-apple-darwin'];
+
+/** The universal build's targets that `rustup target list --installed` output lacks. */
+export function missingRustTargets(installed) {
+  const have = new Set(String(installed).split(/\s+/).filter(Boolean));
+  return rustTargets.filter((triple) => !have.has(triple));
+}
+
 export function identity(channel) {
   const value = channels[channel];
   if (!value) throw new Error(`Unknown channel: ${channel}`);
@@ -43,7 +55,7 @@ export function infoPlist(id, { version, build }) {
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>${escape(version)}</string>
   <key>CFBundleVersion</key><string>${escape(build)}</string>
-  <key>LSMinimumSystemVersion</key><string>13.0</string>
+  <key>LSMinimumSystemVersion</key><string>${escape(minimumSystemVersion)}</string>
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>
 </dict>
@@ -72,13 +84,18 @@ export function agentPlist(id) {
 `;
 }
 
+/**
+ * The bundle's exact layout. Besides what the build writes, it accepts
+ * Contents/CodeResources, the notarization ticket that stapling adds. Nothing
+ * else unknown is accepted.
+ */
 export function layout(id) {
   return {
     directories: new Set(['', 'Contents', 'Contents/MacOS', 'Contents/Resources', 'Contents/Library',
       'Contents/Library/LaunchAgents', 'Contents/_CodeSignature']),
     files: new Set(['Contents/Info.plist', 'Contents/MacOS/anon-guard', 'Contents/MacOS/anon-guard-host',
       'Contents/Resources/AnonNetworkGuard.icns', 'Contents/Resources/LICENSE', 'Contents/Resources/BrandAssets-LICENSE',
-      `Contents/Library/LaunchAgents/${id.agentPlist}`, 'Contents/_CodeSignature/CodeResources']),
+      `Contents/Library/LaunchAgents/${id.agentPlist}`, 'Contents/_CodeSignature/CodeResources', 'Contents/CodeResources']),
   };
 }
 
