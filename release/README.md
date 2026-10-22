@@ -31,6 +31,27 @@ contract. Both must match byte-for-byte in the website contract tests.
 No command installs a native host, changes Chrome permissions, invokes a VPN,
 modifies mobile source, signs an APK, or substitutes a release signer.
 
+## Products
+
+| Product | Artifact | Location |
+| --- | --- | --- |
+| `android` | Wallet APK | `downloads.anon.inc` (R2) |
+| `network-helper` | macOS Setup ZIP (universal); Linux `.tar.gz`; Windows `.zip` | Tagged GitHub release; earlier records stay on R2 |
+| `device-guard` | Device Guard app: one stapled universal macOS `.zip` | Tagged GitHub release, the helper's tag |
+
+`device-guard` shares the helper's `version` and `buildId`, so both ZIPs are
+assets of one immutable release tagged `v<version>-<build>`. The app asset is
+named `anon-network-guard-app-<version>-<build>-universal.zip`. Its artifact is
+`macos` and `universal` only, signed with the same Developer ID and notarized
+like the helper, and `package-helper` does not produce it. A catalog may hold
+the helper and the app for one version and build; their artifact keys differ by
+product, as `<product>/<version>/<build>/<file>`. Keys for existing records are
+unchanged. The design record is [Device Guard release](../docs/device-guard-release.md).
+
+**The website's vendored copy of `catalog.mjs` must be updated and deployed
+before any catalog containing a `device-guard` record is activated.** A
+validator without the product rejects the whole catalog, not only that record.
+
 ## Integrity is not the same as authenticity
 
 A SHA-256 beside a download detects accidental corruption only if the value
@@ -109,7 +130,7 @@ test-channel catalogs. Never copy this fixture into the website.
 - Public site import remains an explicit verified source-data change. The site
   does not fetch a mutable catalog or start artifact requests on page load.
 
-New production helper records target tagged GitHub Releases in
+New production helper and Device Guard records target tagged GitHub Releases in
 `anondotinc/network-guard`; legacy R2 helper entries remain valid. Publishing
 does not upload GitHub assets to R2: it requires an already published stable
 immutable release, matching GitHub asset digest/size, and actual byte verification.

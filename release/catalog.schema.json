@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://anon.inc/contracts/releases/v1",
   "title": "Anon release catalog v1",
-  "description": "Structural contract. catalog.mjs additionally enforces immutable path equality, distinct identities, actual UTC timestamps, product- and platform-specific signing, and desktop unavailability. Validation alone does not authenticate a release: verify the detached signature first.",
+  "description": "Structural contract. catalog.mjs additionally enforces immutable path equality, distinct identities, actual UTC timestamps, product- and platform-specific signing, the Device Guard app being a universal macOS artifact only, and desktop unavailability. Validation alone does not authenticate a release: verify the detached signature first.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "releases"],
@@ -17,7 +17,7 @@
       "type": "object", "additionalProperties": false,
       "required": ["product", "version", "buildId", "releasedAt", "channel", "status", "notes", "artifacts"],
       "properties": {
-        "product": { "enum": ["android", "network-helper", "desktop"] },
+        "product": { "enum": ["android", "network-helper", "device-guard", "desktop"] },
         "version": { "$ref": "#/$defs/token" },
         "buildId": { "$ref": "#/$defs/token" },
         "releasedAt": { "type": "string", "format": "date-time", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{3})?Z$" },
@@ -41,7 +41,8 @@
           { "properties": { "platform": { "const": "linux" }, "signing": { "$ref": "#/$defs/catalogSigning" }, "filename": { "pattern": "\\.tar\\.gz$" }, "architecture": { "enum": ["arm64", "x86_64"] } } },
           { "properties": { "platform": { "const": "windows" }, "signing": { "$ref": "#/$defs/authenticodeSigning" }, "filename": { "pattern": "\\.zip$" }, "architecture": { "enum": ["arm64", "x86_64"] } } }
         ] } } } } },
-        { "if": { "properties": { "product": { "const": "network-helper" } } }, "else": { "properties": { "artifacts": { "items": { "properties": { "platform": { "not": { "enum": ["linux", "windows"] } } } } } } } }
+        { "if": { "properties": { "product": { "const": "network-helper" } } }, "else": { "properties": { "artifacts": { "items": { "properties": { "platform": { "not": { "enum": ["linux", "windows"] } } } } } } } },
+        { "if": { "properties": { "product": { "const": "device-guard" } } }, "then": { "properties": { "artifacts": { "items": { "properties": { "platform": { "const": "macos" }, "architecture": { "const": "universal" } } } } } } }
       ]
     },
     "artifact": {
