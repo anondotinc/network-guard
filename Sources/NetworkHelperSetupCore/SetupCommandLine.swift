@@ -10,8 +10,12 @@ import NetworkHelperCore
 ///     AnonNetworkHelperSetup --activate <version>-<sha256> [--home <dir>]
 ///
 /// Prints one JSON object. Exit status 0 on success, 1 for a setup error and
-/// 64 for a usage error. `--home` replaces the user's home for every path the
-/// installer manages, so tests never touch the real installation.
+/// 64 for a usage error. `--list` reports `registration` as `none`, `owned`,
+/// `app` (the Device Guard app's shim is installed), `staleApp` (its path, but
+/// the app is gone) or `foreign`; while the app owns it, every other command
+/// except `--list` fails with `managedByApp` and changes nothing. `--home`
+/// replaces the user's home for every path the installer manages, so tests
+/// never touch the real installation.
 public enum SetupCommandLine {
     static let commands: Set<String> = ["--install", "--check", "--list", "--uninstall", "--activate"]
 

@@ -73,11 +73,13 @@ final class SetupDelegate: NSObject, NSApplicationDelegate {
     @objc private func openReleases() {
         NSWorkspace.shared.open(URL(string: "https://anon.inc/releases")!)
     }
-    private func perform(_ operation: @escaping () throws -> String) {
+    /// `managed` is what to say when the Anon Network Guard app owns Chrome's registration.
+    private func perform(managed: String, _ operation: @escaping () throws -> String) {
         controls.forEach { $0.isEnabled = false }; status.stringValue = "Working locally…"
         DispatchQueue.global(qos: .userInitiated).async {
             let message: String
             do { message = try operation() }
+            catch SetupError.managedByApp { message = managed }
             catch { message = (error as? SetupError)?.errorDescription ?? SetupError.ioFailure.errorDescription! }
             DispatchQueue.main.async {
                 self.status.stringValue = message
@@ -87,7 +89,7 @@ final class SetupDelegate: NSObject, NSApplicationDelegate {
         }
     }
     @objc private func install() {
-        perform {
+        perform(managed: "Network Guard is managed by the \(DeviceGuardApp.appName) app, so Setup did not change it. To use Setup instead, choose Remove in that app first, then run Install / Repair again.") {
             guard let resources = Bundle.main.resourceURL else { throw SetupError.invalidPayload }
             try self.installer.install(payload: SetupPayload.load(from: resources),
                                        bundledHelper: resources.appendingPathComponent("anon-network-helper"))
@@ -95,7 +97,7 @@ final class SetupDelegate: NSObject, NSApplicationDelegate {
         }
     }
     @objc private func check() {
-        perform {
+        perform(managed: "Network Guard is managed by the \(DeviceGuardApp.appName) app. Open that app to check or remove it. Setup made no changes.") {
             switch try self.installer.check() {
             case .notInstalled: return "Not installed for this extension channel. Choose Install / Repair."
             case .needsRepair: return "Installation needs repair. Choose Install / Repair."
@@ -113,8 +115,11 @@ final class SetupDelegate: NSObject, NSApplicationDelegate {
         alert.informativeText = "Only this setup app's Network Guard files and matching Chrome registration are removed. Your VPN, other extension channel, wallet, and Chrome permissions stay unchanged."
         alert.addButton(withTitle: "Cancel"); alert.addButton(withTitle: "Remove Network Guard")
         guard alert.runModal() == .alertSecondButtonReturn else { return }
-        perform {
+        perform(managed: "Network Guard is managed by the \(DeviceGuardApp.appName) app. Use Remove in that app first. Setup did not change anything.") {
             try self.installer.uninstall()
+            if (try? self.installer.inventory().registration) == "staleApp" {
+                return "Network Guard removed. Chrome still lists the \(DeviceGuardApp.appName) app, which is no longer installed; Setup left that registration as it was. Your VPN and wallet were not changed. To reinstall, use Install / Repair."
+            }
             return "Network Guard removed. Your VPN and wallet were not changed. To reinstall, use Install / Repair."
         }
     }
