@@ -11,19 +11,22 @@
 //! Reads (status, probe, describe, capabilities) are cached for at most
 //! `CACHE_TTL`, measured from when the helper ran; a hit never extends an
 //! entry, so a reply is never more than 5 s older than the helper's read, well
-//! inside the wallet's 45 s status TTL. A hit is the helper's own bytes with
-//! only the 36-character request id replaced. Only `ok:true` replies with the
-//! request's id and version are kept. A connect or app launch clears the
-//! cache, and a read that overlapped one is not stored. So does any frame the
-//! helper may read differently from this crate (`route::ambiguous`, for
-//! example a repeated key): it is never served from or stored in the cache.
+//! inside the wallet's 45 s status TTL. The bound is measured on two clocks
+//! (`Clock`): the monotonic clock does not advance while the machine sleeps,
+//! so the wall clock bounds the entry too, and time asleep counts. A hit is
+//! the helper's own bytes with only the 36-character request id replaced.
+//! Only `ok:true` replies with the request's id and version are kept. A
+//! connect or app launch clears the cache, and a read that overlapped one is
+//! not stored. So does any frame the helper may read differently from this
+//! crate (`route::ambiguous`, for example a repeated key): it is never served
+//! from or stored in the cache.
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use network_guard::error::HelperError;
 use network_guard::wire::failure;
@@ -62,12 +65,33 @@ impl Runner for HelperRunner {
     }
 }
 
+/// One reading of both clocks. `Instant` stops while the machine sleeps (on
+/// macOS and Linux), so a reply cached before sleep would look seconds old
+/// after waking; the wall clock keeps running, so it catches that.
+#[derive(Debug, Clone, Copy)]
+pub struct Clock {
+    pub mono: Instant,
+    pub wall: SystemTime,
+}
+
+impl Clock {
+    pub fn now() -> Self {
+        Clock { mono: Instant::now(), wall: SystemTime::now() }
+    }
+
+    /// True when `self` is under `ttl` old at `now` on both clocks. A wall clock
+    /// that went backwards makes the age unknown, so it is not fresh.
+    fn is_fresh_at(&self, now: Clock, ttl: Duration) -> bool {
+        now.mono.saturating_duration_since(self.mono) < ttl && now.wall.duration_since(self.wall).is_ok_and(|age| age < ttl)
+    }
+}
+
 type Key = (String, i64, String, Option<String>);
 
 struct Entry {
     reply: Vec<u8>,
     id: String,
-    at: Instant,
+    at: Clock,
 }
 
 #[derive(Default)]
@@ -102,11 +126,11 @@ impl<R: Runner> Bridge<R> {
     }
 
     pub fn respond(&self, origin: &str, frame: &[u8]) -> Vec<u8> {
-        self.respond_at(origin, frame, Instant::now())
+        self.respond_at(origin, frame, Clock::now())
     }
 
     /// `now` is injectable so tests can age the cache without sleeping.
-    pub fn respond_at(&self, origin: &str, frame: &[u8], now: Instant) -> Vec<u8> {
+    pub fn respond_at(&self, origin: &str, frame: &[u8], now: Clock) -> Vec<u8> {
         let route = route::route(frame);
         let request = match &route {
             // v9 is the shim's. Reaching the app, it gets what a helper without v9 says.
@@ -124,7 +148,7 @@ impl<R: Runner> Bridge<R> {
             let mut cache = self.cache.lock().unwrap();
             if let (Some(key), Some(request)) = (&key, request) {
                 match cache.entries.get(key) {
-                    Some(entry) if now.saturating_duration_since(entry.at) < CACHE_TTL => {
+                    Some(entry) if entry.at.is_fresh_at(now, CACHE_TTL) => {
                         if let Some(reply) = route::swap_id(&entry.reply, &entry.id, &request.id) {
                             self.stats.cache_hits.fetch_add(1, Ordering::Relaxed);
                             return reply;
@@ -333,16 +357,64 @@ mod tests {
     const A: &str = "00000000-0000-4000-8000-00000000000a";
     const B: &str = "00000000-0000-4000-8000-00000000000B";
 
+    /// Both clocks `by` later, as if the machine had stayed awake.
+    fn later(clock: Clock, by: Duration) -> Clock {
+        Clock { mono: clock.mono + by, wall: clock.wall + by }
+    }
+
     #[test]
     fn reads_are_reused_for_five_seconds_with_the_new_id() {
         let bridge = bridge(false);
-        let t0 = Instant::now();
+        let t0 = Clock::now();
         let first = bridge.respond_at(ORIGIN, &request(1, A, "status", None), t0);
-        let second = bridge.respond_at(ORIGIN, &request(1, B, "status", None), t0 + Duration::from_millis(4900));
+        let second = bridge.respond_at(ORIGIN, &request(1, B, "status", None), later(t0, Duration::from_millis(4900)));
         assert_eq!(bridge.runner.runs.load(Ordering::SeqCst), 1);
         assert_eq!(String::from_utf8(second).unwrap(), String::from_utf8(first).unwrap().replace(A, &B.to_ascii_lowercase()));
         // Five seconds after the helper ran, a hit is not allowed even though a hit happened at 4.9 s.
-        bridge.respond_at(ORIGIN, &request(1, A, "status", None), t0 + CACHE_TTL);
+        bridge.respond_at(ORIGIN, &request(1, A, "status", None), later(t0, CACHE_TTL));
+        assert_eq!(bridge.runner.runs.load(Ordering::SeqCst), 2);
+        assert_eq!(bridge.stats.cache_hits.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn a_read_does_not_outlive_sleep_or_a_wall_clock_step_back() {
+        let (i0, w0) = (Instant::now(), SystemTime::now());
+        let second = Duration::from_secs(1);
+        let cases = [
+            // The monotonic clock stood still while the machine slept for an hour.
+            ("sleep", Clock { mono: i0 + second, wall: w0 + Duration::from_secs(3600) }, false),
+            ("wall clock stepped back", Clock { mono: i0 + second, wall: w0 - second }, false),
+            ("both clocks agree", Clock { mono: i0 + second, wall: w0 + second }, true),
+            ("wall clock unchanged", Clock { mono: i0 + second, wall: w0 }, true),
+            (
+                "just under the bound on both",
+                Clock { mono: i0 + Duration::from_millis(4999), wall: w0 + Duration::from_millis(4999) },
+                true,
+            ),
+            ("the bound on both", Clock { mono: i0 + CACHE_TTL, wall: w0 + CACHE_TTL }, false),
+            ("the bound on the monotonic clock alone", Clock { mono: i0 + CACHE_TTL, wall: w0 + second }, false),
+            ("the bound on the wall clock alone", Clock { mono: i0 + second, wall: w0 + CACHE_TTL }, false),
+        ];
+        for (name, now, hit) in cases {
+            let bridge = bridge(false);
+            bridge.respond_at(ORIGIN, &request(1, A, "status", None), Clock { mono: i0, wall: w0 });
+            bridge.respond_at(ORIGIN, &request(1, B, "status", None), now);
+            assert_eq!(bridge.runner.runs.load(Ordering::SeqCst), if hit { 1 } else { 2 }, "{name}");
+            assert_eq!(bridge.stats.cache_hits.load(Ordering::Relaxed), u64::from(hit), "{name}");
+        }
+    }
+
+    #[test]
+    fn a_read_after_sleep_replaces_the_stale_entry_with_a_fresh_one() {
+        let bridge = bridge(false);
+        let t0 = Clock::now();
+        bridge.respond_at(ORIGIN, &request(1, A, "status", None), t0);
+        let woke = Clock { mono: t0.mono + Duration::from_secs(1), wall: t0.wall + Duration::from_secs(3600) };
+        bridge.respond_at(ORIGIN, &request(1, A, "status", None), woke);
+        assert_eq!(bridge.runner.runs.load(Ordering::SeqCst), 2);
+        assert_eq!(bridge.cache_entries(), 1);
+        // The helper's new reply is measured from the wake, on both clocks.
+        bridge.respond_at(ORIGIN, &request(1, B, "status", None), later(woke, Duration::from_secs(1)));
         assert_eq!(bridge.runner.runs.load(Ordering::SeqCst), 2);
         assert_eq!(bridge.stats.cache_hits.load(Ordering::Relaxed), 1);
     }
@@ -350,7 +422,7 @@ mod tests {
     #[test]
     fn keys_separate_versions_providers_and_methods() {
         let bridge = bridge(false);
-        let t0 = Instant::now();
+        let t0 = Clock::now();
         for frame in [
             request(1, A, "status", None),
             request(3, A, "status", Some("ivpn")),
@@ -367,7 +439,7 @@ mod tests {
     #[test]
     fn mutations_are_never_cached_and_clear_reads() {
         let bridge = bridge(false);
-        let t0 = Instant::now();
+        let t0 = Clock::now();
         bridge.respond_at(ORIGIN, &request(3, A, "status", Some("ivpn")), t0);
         bridge.respond_at(ORIGIN, &request(3, A, "connectSelected", Some("ivpn")), t0);
         bridge.respond_at(ORIGIN, &request(3, A, "connectSelected", Some("ivpn")), t0);
@@ -416,7 +488,7 @@ mod tests {
         let bridge = Bridge::new(FirstKeyWins { runs: AtomicUsize::new(0) });
         let runs = || bridge.runner.runs.load(Ordering::SeqCst);
         let parse = |reply: Vec<u8>| serde_json::from_slice::<Value>(&reply).unwrap();
-        let t0 = Instant::now();
+        let t0 = Clock::now();
         // serde_json reads a v8 describe; the helper reads and answers a v4 describe.
         let mixed = format!(r#"{{"v":4,"id":"{A}","method":"describe","v":8}}"#);
         assert_eq!(parse(bridge.respond_at(ORIGIN, mixed.as_bytes(), t0))["v"], json!(4));

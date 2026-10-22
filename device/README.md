@@ -59,7 +59,8 @@ Chrome ──stdio──▶ anon-guard-host ──socket──▶ anon-guard ─
   by others. If none is usable, well-formed requests get `providerUnavailable`.
 - **The read cache.** Status, probe, describe and capabilities replies with
   `ok:true`, the request's id and the request's `v` are kept for 5 s from
-  when the helper ran. A hit never extends an entry. A hit returns the
+  when the helper ran, measured on both the monotonic and the wall clock so
+  time asleep counts. A hit never extends an entry. A hit returns the
   helper's bytes with only the 36-character id swapped. Connects and provider
   app launches are never cached, and they clear the cache. So does a frame
   the helper may read differently (above), which could be a connect.

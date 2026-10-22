@@ -158,9 +158,10 @@ requests get `appNotRunning`.
 In bridge mode, when the installed helper can't be run or doesn't answer, a
 well-formed request gets `{"v":<request v>,"id":<request id>,"ok":false,"error":"providerUnavailable"}`.
 The app may reuse an `ok:true` read (status, probe, describe, capabilities) for
-at most 5 s from the helper's run, with only the request id replaced; this
-never extends the wallet's 45 s status TTL. Connects and provider app launches
-are never reused.
+at most 5 s from the helper's run, with only the request id replaced; the bound
+is measured on both the monotonic and the wall clock, so time asleep counts and
+a wall clock that moved backwards ends the reuse. This never extends the
+wallet's 45 s status TTL. Connects and provider app launches are never reused.
 
 ## Release catalog v1
 
