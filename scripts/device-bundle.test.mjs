@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { agentPlist, assertBundleLayout, channels, identity, infoPlist, layout } from './device-bundle.mjs';
+import { agentPlist, assertBundleLayout, channels, identity, infoPlist, layout, minimumSystemVersion, missingRustTargets, rustTargets } from './device-bundle.mjs';
 
 const rustIdentity = readFileSync(new URL('../device/src/identity.rs', import.meta.url), 'utf8');
 const rustBuildInfo = readFileSync(new URL('../rust/src/build_info.rs', import.meta.url), 'utf8');
@@ -55,4 +55,44 @@ test('rebuilding never adopts or deletes unrecognized bundle contents', t => {
   rmSync(path.join(bundle, 'Contents/Resources/LICENSE'));
   symlinkSync('/etc/hosts', path.join(bundle, 'Contents/Resources/LICENSE'));
   assert.throws(() => assertBundleLayout(bundle, id), /Unrecognized entry/);
+});
+
+test('stapling may add Contents/CodeResources, and nothing else unknown', t => {
+  const base = mkdtempSync(path.join(tmpdir(), 'device-bundle-test-'));
+  t.after(() => rmSync(base, { recursive: true, force: true }));
+  const id = identity('production');
+  const bundle = path.join(base, id.bundleName);
+  for (const file of layout(id).files) {
+    if (file === 'Contents/CodeResources') continue;
+    mkdirSync(path.dirname(path.join(bundle, file)), { recursive: true });
+    writeFileSync(path.join(bundle, file), 'synthetic');
+  }
+  assert.doesNotThrow(() => assertBundleLayout(bundle, id));
+  writeFileSync(path.join(bundle, 'Contents/CodeResources'), 'synthetic ticket');
+  assert.doesNotThrow(() => assertBundleLayout(bundle, id));
+  // The ticket is a file in Contents only: not a directory, a symlink or at any other path.
+  rmSync(path.join(bundle, 'Contents/CodeResources'));
+  mkdirSync(path.join(bundle, 'Contents/CodeResources'));
+  assert.throws(() => assertBundleLayout(bundle, id), /Unrecognized entry .*Contents\/CodeResources/);
+  rmSync(path.join(bundle, 'Contents/CodeResources'), { recursive: true });
+  symlinkSync('/etc/hosts', path.join(bundle, 'Contents/CodeResources'));
+  assert.throws(() => assertBundleLayout(bundle, id), /Unrecognized entry .*Contents\/CodeResources/);
+  rmSync(path.join(bundle, 'Contents/CodeResources'));
+  for (const elsewhere of ['CodeResources', 'Contents/MacOS/CodeResources', 'Contents/Resources/CodeResources']) {
+    writeFileSync(path.join(bundle, elsewhere), 'synthetic ticket');
+    assert.throws(() => assertBundleLayout(bundle, id), /Unrecognized entry/, elsewhere);
+    rmSync(path.join(bundle, elsewhere));
+  }
+  assert.doesNotThrow(() => assertBundleLayout(bundle, id));
+});
+
+test('the universal build names both macOS targets and a macOS 13 floor', () => {
+  assert.deepEqual(rustTargets, ['aarch64-apple-darwin', 'x86_64-apple-darwin']);
+  assert.equal(minimumSystemVersion, '13.0');
+  assert.match(infoPlist(identity('production'), { version: '1.0.0', build: 1 }), /<key>LSMinimumSystemVersion<\/key><string>13\.0<\/string>/);
+  assert.deepEqual(missingRustTargets('aarch64-apple-darwin\nx86_64-apple-darwin\nwasm32-unknown-unknown\n'), []);
+  assert.deepEqual(missingRustTargets('aarch64-apple-darwin\nwasm32-unknown-unknown\n'), ['x86_64-apple-darwin']);
+  assert.deepEqual(missingRustTargets('x86_64-apple-darwin\n'), ['aarch64-apple-darwin']);
+  assert.deepEqual(missingRustTargets(''), rustTargets);
+  assert.deepEqual(missingRustTargets('x86_64-apple-darwin-extra\n'), rustTargets);
 });

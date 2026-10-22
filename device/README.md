@@ -110,8 +110,13 @@ cargo test --features development      # unit, shim fixtures, real binaries in a
 cargo test                             # production channel
 NETWORK_GUARD_SWIFT_HELPER="$PWD/../dist/development/Anon Network Guard Setup.app/Contents/Resources/anon-network-helper" \
   cargo test --features development --test conformance   # byte parity with the Swift helper (malformed requests only)
-node ../scripts/build-device.mjs --channel development   # macOS bundle, signed ad hoc unless SIGN_IDENTITY is set
+node ../scripts/build-device.mjs --channel development   # universal (arm64 + x86_64) macOS 13+ bundle, signed ad hoc unless SIGN_IDENTITY is set
 ```
+
+The bundle build is universal. It needs both Rust targets
+(`rustup target add aarch64-apple-darwin x86_64-apple-darwin`), builds each for
+macOS 13 (`MACOSX_DEPLOYMENT_TARGET=13.0`, matching `LSMinimumSystemVersion`) and
+joins the two with `lipo`. The `cargo test` commands above build for the host only.
 
 [The README's development install section](../README.md#development-install)
 installs and switches variants. [`test/native-e2e.mjs`](test/native-e2e.mjs) drives

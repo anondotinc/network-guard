@@ -56,6 +56,70 @@ jobs:
       - name: Verify tracked source is unchanged
         run: git diff --exit-code
 
+  device-bundle:
+    name: Device Guard universal bundle
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Rust targets for both Mac architectures
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - name: Universal app bundles, both channels (ad hoc signed)
+        run: |
+          node scripts/build-device.mjs --channel production
+          node scripts/build-device.mjs --channel development
+      - name: Both architectures, macOS 13 minimum and signatures
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          for app in "dist/device/production/Anon Network Guard.app" "dist/device/development/Anon Network Guard Dev.app"; do
+            echo "== $app"
+            bundle_id=$(plutil -extract CFBundleIdentifier raw "$app/Contents/Info.plist")
+            [ "$(plutil -extract LSMinimumSystemVersion raw "$app/Contents/Info.plist")" = "13.0" ] || fail "$app: LSMinimumSystemVersion is not 13.0"
+            for name in anon-guard anon-guard-host; do
+              binary="$app/Contents/MacOS/$name"
+              archs=$(lipo -archs "$binary" | tr ' ' '\n' | sort | paste -sd' ' -)
+              echo "$name: $archs"
+              [ "$archs" = "arm64 x86_64" ] || fail "$binary has architectures '$archs', expected 'arm64 x86_64'"
+              lipo "$binary" -verify_arch arm64 x86_64
+              minos=$(vtool -show-build "$binary" | awk '$1 == "minos" { print $2 }' | paste -sd, -)
+              echo "$name: minos $minos"
+              [ "$minos" = "13.0,13.0" ] || fail "$binary has minos '$minos', expected 13.0 in both slices"
+            done
+            codesign --verify --strict --deep "$app"
+            [ "$(codesign -dv "$app" 2>&1 | sed -n 's/^Identifier=//p')" = "$bundle_id" ] || fail "$app: wrong signing identifier"
+            [ "$(codesign -dv "$app/Contents/MacOS/anon-guard-host" 2>&1 | sed -n 's/^Identifier=//p')" = "$bundle_id.host" ] || fail "$app: the shim lost its own signing identifier"
+          done
+      - name: Run the built binaries (arm64 always, x86_64 where Rosetta is present)
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          if arch -x86_64 /usr/bin/true 2>/dev/null; then rosetta=yes; else rosetta=no; fi
+          echo "Rosetta available: $rosetta"
+          for app in "dist/device/production/Anon Network Guard.app" "dist/device/development/Anon Network Guard Dev.app"; do
+            app_native=$("$app/Contents/MacOS/anon-guard" --version)
+            shim_native=$("$app/Contents/MacOS/anon-guard-host" --version < /dev/null)
+            echo "arm64: $app_native | $shim_native"
+            if [ "$rosetta" = yes ]; then
+              app_intel=$(arch -x86_64 "$app/Contents/MacOS/anon-guard" --version)
+              shim_intel=$(arch -x86_64 "$app/Contents/MacOS/anon-guard-host" --version < /dev/null)
+              echo "x86_64: $app_intel | $shim_intel"
+              [ "$app_intel" = "$app_native" ] || fail "$app: the x86_64 app reports '$app_intel', the arm64 one '$app_native'"
+              [ "$shim_intel" = "$shim_native" ] || fail "$app: the x86_64 shim reports '$shim_intel', the arm64 one '$shim_native'"
+            fi
+          done
+          if [ "$rosetta" = no ]; then echo "::notice::Rosetta is not available on this runner; the x86_64 slices were checked statically only."; fi
+      - name: Verify tracked source is unchanged
+        run: git diff --exit-code
+
   linux:
     name: Linux helper (${{ matrix.runner }})
     strategy:
