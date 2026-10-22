@@ -4,7 +4,7 @@ import { copyFile, lstat, mkdir, readFile, realpath, writeFile } from 'node:fs/p
 import { constants } from 'node:fs';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { assertCatalog, helperArtifactUrl, R2_DOWNLOAD_ORIGINS } from './catalog.mjs';
+import { assertCatalog, GITHUB_RELEASE_PRODUCTS, helperArtifactUrl, R2_DOWNLOAD_ORIGINS } from './catalog.mjs';
 
 export const MAX_ARTIFACT_BYTES = 512 * 1024 * 1024;
 export const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
@@ -37,10 +37,11 @@ export async function copyNew(source, target) {
   await copyFile(source, target, constants.COPYFILE_EXCL);
 }
 export function artifactKey(artifact, release) {
-  if (release?.product === 'network-helper' && artifact.location === helperArtifactUrl(release, artifact.filename)) {
+  if (GITHUB_RELEASE_PRODUCTS.includes(release?.product) && artifact.location === helperArtifactUrl(release, artifact.filename)) {
     safeToken(release.version, 'version'); safeToken(release.buildId, 'buildId');
     invariant(/^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$/.test(artifact.filename) && !artifact.filename.includes('..'), 'Unsafe artifact filename');
-    return `network-helper/${release.version}/${release.buildId}/${artifact.filename}`;
+    // The same product/version/build/file shape as an R2 key, so a GitHub-hosted asset stages at one path.
+    return `${release.product}/${release.version}/${release.buildId}/${artifact.filename}`;
   }
   const origin = R2_DOWNLOAD_ORIGINS.find((value) => typeof artifact.location === 'string' && artifact.location.startsWith(`${value}/`));
   invariant(origin, 'Unexpected artifact location');

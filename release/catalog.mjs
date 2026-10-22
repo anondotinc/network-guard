@@ -5,10 +5,13 @@ export const R2_DOWNLOAD_ORIGIN = 'https://downloads.anon.inc';
 export const R2_DOWNLOAD_ORIGINS = Object.freeze([R2_DOWNLOAD_ORIGIN, 'https://release.anon.inc']);
 export const HELPER_REPOSITORY = 'https://github.com/anondotinc/network-guard';
 export const HELPER_RELEASES = `${HELPER_REPOSITORY}/releases`;
+// Products whose assets are published as exact files on a tagged GitHub release
+// in this repository. They share one version and one tag: v<version>-<buildId>.
+export const GITHUB_RELEASE_PRODUCTS = Object.freeze(['network-helper', 'device-guard']);
 export const helperReleaseTag = (release) => `v${release.version}-${release.buildId}`;
 export const helperArtifactUrl = (release, filename) => `${HELPER_RELEASES}/download/${helperReleaseTag(release)}/${filename}`;
 export function helperReleasePage(release, artifact) {
-  return release.product === 'network-helper' && artifact.location === helperArtifactUrl(release, artifact.filename)
+  return GITHUB_RELEASE_PRODUCTS.includes(release.product) && artifact.location === helperArtifactUrl(release, artifact.filename)
     ? `${HELPER_RELEASES}/tag/${helperReleaseTag(release)}` : undefined;
 }
 const hex = /^[0-9a-f]{64}$/;
@@ -34,7 +37,7 @@ export function validateCatalog(catalog) {
   catalog.releases.forEach((r, i) => {
     const p = `releases[${i}]`;
     if (!exact(r, ['product', 'version', 'buildId', 'releasedAt', 'channel', 'status', 'notes', 'artifacts'], ['source'])) { fail(p, 'unexpected or missing fields'); return; }
-    if (!['android', 'network-helper', 'desktop'].includes(r.product)) fail(p, 'unsupported product');
+    if (!['android', 'network-helper', 'device-guard', 'desktop'].includes(r.product)) fail(p, 'unsupported product');
     if (typeof r.version !== 'string' || !token.test(r.version) || r.version.includes('..')) fail(p, 'invalid version');
     if (typeof r.buildId !== 'string' || !token.test(r.buildId) || r.buildId.includes('..')) fail(p, 'invalid buildId');
     if (!utc(r.releasedAt)) fail(p, 'releasedAt must be an actual ISO UTC timestamp');
@@ -55,6 +58,8 @@ export function validateCatalog(catalog) {
       const linux = a.platform === 'linux';
       const windows = a.platform === 'windows';
       if (!['android', 'macos', 'linux', 'windows'].includes(a.platform) || (r.product === 'android') !== (a.platform === 'android') || ((linux || windows) && r.product !== 'network-helper')) fail(ap, 'platform does not match product');
+      // The Device Guard app ships as one universal macOS bundle.
+      if (r.product === 'device-guard' && (a.platform !== 'macos' || a.architecture !== 'universal')) fail(ap, 'Device Guard artifacts must be universal macOS');
       if (!(linux || windows ? ['arm64', 'x86_64'] : ['universal', 'arm64', 'x86_64', ...(r.product === 'android' ? ['arm64-x86_64'] : [])]).includes(a.architecture)) fail(ap, 'unsupported architecture');
       if (architectures.has(`${a.platform}/${a.architecture}`)) fail(ap, 'duplicate architecture');
       architectures.add(`${a.platform}/${a.architecture}`);
@@ -63,7 +68,7 @@ export function validateCatalog(catalog) {
       if (!Number.isSafeInteger(a.bytes) || a.bytes < 1 || a.bytes > 536870912) fail(ap, 'invalid size (maximum 512 MiB)');
       if (typeof a.sha256 !== 'string' || !hex.test(a.sha256)) fail(ap, 'invalid SHA-256');
       const isR2 = R2_DOWNLOAD_ORIGINS.some((origin) => a.location === `${origin}/${id}/${a.filename}`);
-      if (!isR2 && !(r.product === 'network-helper' && a.location === helperArtifactUrl(r, a.filename))) fail(ap, 'location must match the versioned R2 path or official helper GitHub release asset');
+      if (!isR2 && !(GITHUB_RELEASE_PRODUCTS.includes(r.product) && a.location === helperArtifactUrl(r, a.filename))) fail(ap, 'location must match the versioned R2 path or official helper GitHub release asset');
       if (locations.has(a.location)) fail(ap, 'duplicate artifact location');
       locations.add(a.location);
       if (r.product === 'android') {

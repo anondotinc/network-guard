@@ -170,18 +170,19 @@ validator (`release/catalog.mjs`) and verify byte-for-byte contract parity in te
 Root: `{schemaVersion:1,releases:[]}`. A release has exactly `product`, `version`,
 `buildId`, `releasedAt` (ISO UTC), `channel`, `status`, `notes` (string array), and
 `artifacts` (array), plus optional verified `source` provenance. Products:
-`android`, `network-helper`, `desktop`. Channels: `test`, `stable`. Status:
-`unreleased`, `published`, `withdrawn`. Desktop is not an available product here.
+`android`, `network-helper`, `device-guard`, `desktop`. Channels: `test`, `stable`.
+Status: `unreleased`, `published`, `withdrawn`. Desktop is not an available product here.
+`device-guard` is the Device Guard app ([design record](docs/device-guard-release.md)).
 
 Artifacts contain `platform` (`android`, `macos`, or helper-only `linux` and `windows`), `architecture` (`universal`,
-`arm64`, `x86_64`, Android-only `arm64-x86_64`; Linux and Windows are `arm64` or `x86_64` only), `minimumOs`, `filename`, `bytes` (positive integer), `sha256`
+`arm64`, `x86_64`, Android-only `arm64-x86_64`; Linux and Windows are `arm64` or `x86_64` only; `device-guard` is `macos` and `universal` only), `minimumOs`, `filename`, `bytes` (positive integer), `sha256`
 (64 lowercase hex), `signing` (structured product-specific signing identity), and
 `location` (HTTPS download URL). APK catalog URLs are confined to
 `https://downloads.anon.inc/` for new imports. Any previously signed
 `https://release.anon.inc/` URLs remain valid and are never rewritten. Helper
-URLs additionally support exact assets at
+and Device Guard URLs additionally support exact assets at
 `https://github.com/anondotinc/network-guard/releases/download/v<VERSION>-<BUILD_ID>/<FILENAME>`.
-New helper packages use GitHub; existing R2 records remain valid. GitHub release
+New helper and Device Guard packages use GitHub; existing R2 records remain valid. GitHub release
 metadata must establish a stable, published, immutable release and matching
 asset digest/size, followed by actual download/hash verification before catalog
 activation. The site's helper button opens the corresponding exact release page.
@@ -201,6 +202,20 @@ packaging verifies both executables' signatures and that subject. Consumers that
 `src/lib/releases/vendor/catalog.mjs`) must take this version before a catalog
 containing a Linux artifact is imported, and must not render Linux artifacts as
 macOS downloads.
+
+`device-guard` is the macOS Device Guard app: one stapled, universal, Developer ID
+signed and notarized app in a `.zip`, with the same `apple-developer-id` signing as
+the helper. Its `version` and `buildId` are the helper's, so its GitHub tag is the
+helper's `v<VERSION>-<BUILD_ID>`; the helper and app ZIPs are two assets of one
+immutable release. The app asset is named
+`anon-network-guard-app-<VERSION>-<BUILD_ID>-universal.zip`. A `device-guard`
+artifact is `platform` `macos` and `architecture` `universal`, and nothing else.
+Release identity is `product/version/buildId`, so a helper and an app record may
+share a version and build, and their artifact keys differ by product. The release
+page for an app asset is the same tag page as the helper's. Consumers that copy
+`catalog.mjs` must take this version, and deploy it, before any catalog containing a
+`device-guard` record is activated; an older validator rejects the whole catalog.
+
 Optional `source`: `{repository:<verified HTTPS repository URL>,commit:<40 hex>}`.
 No guessed source references. `published` requires verified artifacts; absent
 files stay unavailable. An empty catalog never implies downloadable releases.
