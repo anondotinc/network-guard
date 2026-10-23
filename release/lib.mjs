@@ -4,7 +4,7 @@ import { copyFile, lstat, mkdir, readFile, realpath, writeFile } from 'node:fs/p
 import { constants } from 'node:fs';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { assertCatalog, GITHUB_RELEASE_PRODUCTS, helperArtifactUrl, R2_DOWNLOAD_ORIGINS } from './catalog.mjs';
+import { assertCatalog, assertCatalogTransition, GITHUB_RELEASE_PRODUCTS, helperArtifactUrl, R2_DOWNLOAD_ORIGINS } from './catalog.mjs';
 
 export const MAX_ARTIFACT_BYTES = 512 * 1024 * 1024;
 export const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
@@ -59,17 +59,53 @@ export async function localArtifact(root, artifact, release) {
   invariant(actual === candidate, 'Artifact paths may not contain symbolic links');
   return candidate;
 }
-export async function verifyArtifacts(catalog, root) {
+export const releaseId = (release) => `${release.product}/${release.version}/${release.buildId}`;
+/**
+ * Identities of the non-withdrawn releases in `catalog` that `previous` already proves unchanged:
+ * same identity, with artifacts, releasedAt and channel identical (the comparison publish applies to
+ * the active catalog). `previous` MUST already be authenticated against a trusted public key.
+ */
+export function unchangedHistory(previous, catalog) {
+  const before = new Map(previous.releases.map((release) => [releaseId(release), release]));
+  const unchanged = new Set();
+  for (const release of catalog.releases) {
+    const prior = before.get(releaseId(release));
+    if (release.status === 'withdrawn' || !prior) continue;
+    // Any difference, including a reactivated withdrawal, only means "not history": a local copy is required.
+    try { assertCatalogTransition({ schemaVersion: 1, releases: [prior] }, { schemaVersion: 1, releases: [release] }); } catch { continue; }
+    unchanged.add(releaseId(release));
+  }
+  return unchanged;
+}
+async function hasLocalCopy(root, key) {
+  const base = await realpath(root);
+  try { await lstat(resolve(base, key)); return true; } catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+}
+/**
+ * Hash every non-withdrawn artifact of `catalog` against its local copy under `root`.
+ * `previous` (an authenticated earlier catalog) excuses only a MISSING copy of an unchanged release;
+ * such entries have `path: null`. A copy that is present is always verified. `deferMissing` returns every
+ * missing copy as `path: null` for a caller that proves history itself later (publish --execute does,
+ * from the authenticated active catalog, before any mutation).
+ */
+export async function verifyArtifacts(catalog, root, { previous, deferMissing = false } = {}) {
   assertCatalog(catalog);
+  const historical = previous ? unchangedHistory(previous, catalog) : new Set();
   const verified = [];
   for (const release of catalog.releases) {
     // Withdrawn files may have been removed from the server; they have no download action.
     if (release.status === 'withdrawn') continue;
     for (const artifact of release.artifacts) {
+      const key = artifactKey(artifact, release);
+      if ((previous || deferMissing) && !await hasLocalCopy(root, key)) {
+        invariant(deferMissing || historical.has(releaseId(release)), `Artifact ${key} has no local copy and is not an unchanged release in the authenticated previous catalog`);
+        verified.push({ release, artifact, path: null, key });
+        continue;
+      }
       const path = await localArtifact(root, artifact, release);
       const info = await fileInfo(path);
       invariant(info.bytes === artifact.bytes && info.sha256 === artifact.sha256, `Artifact integrity mismatch: ${artifact.filename}`);
-      verified.push({ release, artifact, path, key: artifactKey(artifact, release) });
+      verified.push({ release, artifact, path, key });
     }
   }
   return verified;
@@ -99,11 +135,11 @@ export function verifyCatalogSignature(bytes, signature, publicKey) {
   // Authenticate exact bytes before parsing untrusted JSON.
   return parseCatalog(bytes);
 }
-export async function loadVerifiedCatalog({ catalog, signature, publicKey, artifacts }) {
+export async function loadVerifiedCatalog({ catalog, signature, publicKey, artifacts, previous, deferMissing }) {
   const bytes = await readFile(catalog);
   const signatureBytes = await readFile(signature);
   const parsed = verifyCatalogSignature(bytes, signatureBytes, await readFile(publicKey));
-  const verified = artifacts ? await verifyArtifacts(parsed, artifacts) : [];
+  const verified = artifacts ? await verifyArtifacts(parsed, artifacts, { previous, deferMissing }) : [];
   return { bytes, signatureBytes, catalog: parsed, verified };
 }
 export function parseArgs(argv, { values = [], booleans = [] } = {}) {

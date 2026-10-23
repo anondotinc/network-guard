@@ -135,10 +135,20 @@ node release/cli.mjs catalog \
 ```
 
 To preserve earlier release history, add `--previous`, `--previous-signature`,
-and `--public-key` for the last trusted catalog. Keep verified historical
-artifacts in the artifact tree. Never hand-merge guessed signing metadata.
-`--publish` labels a **candidate** as published; it does not activate or upload
-anything. Do not copy the candidate into the website before storage verification.
+and `--public-key` for the last trusted catalog. Never hand-merge guessed signing
+metadata. `--publish` labels a **candidate** as published; it does not activate or
+upload anything. Do not copy the candidate into the website before storage
+verification.
+
+Only **new** artifacts need a local copy. With that authenticated previous
+catalog, a historical artifact's local copy may be omitted when its release is
+in the previous catalog with identical `artifacts`, `releasedAt` and `channel`,
+and is not withdrawn in the new catalog. Anything else, including every new or
+changed artifact, still needs a local copy that matches the signed size and
+SHA-256. A historical copy that is present is still hashed, and a mismatch
+fails. Without `--previous`, every non-withdrawn artifact needs a local copy as
+before. The previous catalog must verify under the trusted public key; it is
+never trusted for any other purpose.
 
 ```sh
 node release/cli.mjs sign \
@@ -153,6 +163,28 @@ node release/cli.mjs verify \
   --artifacts release/out/selected-release \
   --sums release/out/signed-candidate/SHA256SUMS
 ```
+
+`sign` and `verify` accept the same `--previous FILE --previous-signature FILE`
+(the signed `catalog.json` and `catalog.json.sig` of the last activated release,
+for example its earlier `signed-candidate/` output or the `catalogs/<catalog-sha256>/`
+objects in the release bucket). `sign` authenticates it with its own `--public-key`
+(default: the pinned release key) and `verify` with its `--public-key`. Then
+`--artifacts` may hold only the new artifacts:
+
+```sh
+node release/cli.mjs sign \
+  --catalog release/out/catalog-candidate.json \
+  --artifacts release/out/selected-release \
+  --previous release/out/previous/catalog.json \
+  --previous-signature release/out/previous/catalog.json.sig \
+  --private-key /absolute/external/secure/metadata-ed25519.pem \
+  --out release/out/signed-candidate
+```
+
+`SHA256SUMS` and the signature are computed from catalog metadata exactly as
+before. Omitted copies are not hashed locally, so the command output adds
+`artifactsWithoutLocalCopy` (`verify` reports only the present artifacts in
+`artifactHashesVerified`); their bytes are verified later, at execute.
 
 `catalog.json.sig` is exactly 64 **raw** Ed25519 bytes. Signatures cover the
 exact UTF-8 catalog bytes, including whitespace and final newline. Verify first,
@@ -169,24 +201,45 @@ node release/cli.mjs publish \
 ```
 
 The default is completely offline: no credentials are read and no HEAD/GET/PUT
-is sent. Review the planned immutable keys and final activation object. After
+is sent. Review the planned immutable keys and final activation object. Add the
+same `--previous` and `--previous-signature` as above to omit historical local
+copies: the plan then marks each of them `remote-verification-at-execute-no-local-copy`
+and lists `artifactsWithoutLocalCopy`. Without `--previous`, a missing local copy
+still fails the dry run. After
 separate approval, supply `--execute --account-id APPROVED_ACCOUNT_ID --bucket
 DEDICATED_RELEASE_BUCKET --confirm-dedicated-bucket DEDICATED_RELEASE_BUCKET`.
 Only that mode reads `ANON_RELEASE_R2_ACCESS_KEY_ID` and
 `ANON_RELEASE_R2_SECRET_ACCESS_KEY` from a secure process environment. Do not
 paste secret values into shell history or use shared workspace `.env` files.
 
+Historical artifacts without a local copy. With `--execute`, the history that
+may excuse a missing local copy is the **authenticated active remote catalog**
+that step 1 reads, not a file you supply. A copy may be omitted only for a
+release in that catalog with identical `artifacts`, `releasedAt` and `channel`
+that is not withdrawn in the new catalog; any other missing copy refuses the
+run before anything is written. If you also pass `--previous`, it must be
+byte-identical to the active remote catalog, or the run stops after step 1. A
+local copy that is present is used exactly as before.
+
 Execution order:
 
 1. Authenticate existing `catalog/v1.json` against the trusted public key and
-   retain its ETag. Preserve history; refuse changed immutable identities.
-2. Conditional-create each R2-hosted versioned artifact (`If-None-Match: *`). If it
-   already exists, verify the existing bytes; never overwrite it.
+   retain its ETag. Preserve history; refuse changed immutable identities. Prove
+   from it which artifacts may lack a local copy (above), and refuse the rest.
+2. Before any upload, for each unchanged historical R2-hosted artifact with no
+   local copy: never upload it. Download the object from R2 and compare its size
+   and SHA-256 with the signed catalog; if it is absent from the bucket, refuse
+   and supply a local copy. Then conditional-create each R2-hosted versioned
+   artifact that has a local copy (`If-None-Match: *`). If it already exists,
+   verify the existing bytes; never overwrite it. Historical GitHub-hosted
+   assets are never uploaded and keep the immutable-release checks of step 4.
 3. Download each uploaded artifact from R2 and compare bytes + SHA-256. A
    successful PUT, ETag, or stored metadata checksum alone is insufficient.
 4. Download every non-withdrawn artifact again through its exact signed
    `https://downloads.anon.inc/<product>/<version>/<build>/<filename>` URL.
-   This is a mandatory gate, including artifacts that already existed in R2.
+   This is a mandatory gate, including artifacts that already existed in R2
+   and historical artifacts without a local copy. Every body is stream-hashed
+   in memory; no file is written to disk.
    Each request is an unauthenticated GET with no cookies, no referrer, no
    automatic redirects, identity content encoding, and a 60-second deadline.
    HTTP 200, bounded body size, and the expected final bytes + SHA-256 are

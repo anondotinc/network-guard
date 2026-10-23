@@ -43,9 +43,13 @@ export async function prepareMetadataSigner({ privateKey, publicKey = trustedMet
   };
 }
 
-export async function signMetadataBundle({ bytes, artifacts, out, signer }) {
+// `previous` ({ bytes, signatureBytes }) is an earlier catalog that must verify under the signer's trusted
+// public key. It excuses only a missing local copy of a release it proves unchanged.
+export async function signMetadataBundle({ bytes, artifacts, out, signer, previous }) {
   const catalog = parseCatalog(bytes);
-  await verifyArtifacts(catalog, artifacts);
+  const history = previous ? verifyCatalogSignature(previous.bytes, previous.signatureBytes, signer.publicKey) : undefined;
+  const verified = await verifyArtifacts(catalog, artifacts, { previous: history });
+  const remote = verified.filter((entry) => entry.path === null).length;
   const signature = signer.sign(bytes);
   // Exclusive directory creation prevents mixed-key/partial retries from
   // overwriting an existing bundle. Retain partial output for inspection.
@@ -56,5 +60,5 @@ export async function signMetadataBundle({ bytes, artifacts, out, signer }) {
   await writeNew(join(destination, 'catalog.json.sig'), signature);
   await writeNew(join(destination, 'SHA256SUMS'), checksumText(catalog));
   await writeNew(join(destination, 'metadata-public-key.pem'), signer.publicKey);
-  return { signed: true, algorithm: 'Ed25519', catalogSha256: sha256(bytes), publicKeySpkiSha256: signer.fingerprint, activated: false };
+  return { signed: true, algorithm: 'Ed25519', catalogSha256: sha256(bytes), publicKeySpkiSha256: signer.fingerprint, activated: false, ...(remote ? { artifactsWithoutLocalCopy: remote } : {}) };
 }

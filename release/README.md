@@ -21,12 +21,22 @@ contract. Both must match byte-for-byte in the website contract tests.
 | `import-apk` | Explicit APK, expected app signer, version/build; inspected by Android SDK `aapt2` and `apksigner` | None; reads local APK and copies verified bytes |
 | `package-helper` | Universal production app; default unsigned local test archive | Local `plutil`, `lipo`, `ditto` only |
 | `package-helper --execute-signing` | Approved Developer ID Application identity/team and notarization profile | Codesigning; explicit Apple notarization submission/assessment |
-| `catalog` | Verified release record + artifact directory; optional authenticated prior catalog | None; creates an inactive candidate |
+| `catalog` | Verified release record + artifact directory; optional authenticated prior catalog, which spares unchanged historical artifacts a local copy | None; creates an inactive candidate |
 | `withdraw` | Authenticated catalog + exact release + reason | None; creates an inactive withdrawal candidate |
-| `sign` | Candidate + artifacts + external Ed25519 private key matching the pinned public key | None; exact-byte detached metadata signing |
-| `verify` | Trusted public key + catalog/signature; optional artifacts/checksum file | Offline only |
-| `publish` | Signed catalog + verified local artifacts | Default dry run: no credentials or requests |
+| `sign` | Candidate + artifacts + external Ed25519 private key matching the pinned public key; optional authenticated `--previous` | None; exact-byte detached metadata signing |
+| `verify` | Trusted public key + catalog/signature; optional artifacts/checksum file and authenticated `--previous` | Offline only |
+| `publish` | Signed catalog + verified local artifacts; optional authenticated `--previous` | Default dry run: no credentials or requests |
 | `publish --execute` | Stable catalog + explicit dedicated bucket confirmation | Conditional R2 uploads, R2 and mandatory public-host download-and-hash verification, activation last |
+
+Only new artifacts need a local copy when an authenticated previous catalog is
+given (`--previous` with `--previous-signature`, verified by the command's trusted
+public key). A release already in it, with identical artifacts, date and channel
+and not withdrawn now, is unchanged history and may omit its copy; a copy that
+is present is still hashed. `publish --execute` takes that history from the
+authenticated active remote catalog instead (a `--previous` must equal it), never
+uploads such an artifact, reads its R2 object back against the signed SHA-256
+(refusing if absent), and still downloads every artifact from its public URL.
+See [the operator runbook](OPERATOR.md).
 
 No command installs a native host, changes Chrome permissions, invokes a VPN,
 modifies mobile source, signs an APK, or substitutes a release signer.
@@ -118,6 +128,10 @@ test-channel catalogs. Never copy this fixture into the website.
   bounded at 60 seconds per request. No multipart/resumable upload protocol.
 - A matching existing immutable object can resume only after reading and
   hashing its bytes. Conflicting bytes require a new version/build.
+- A missing local copy is excused only for an unchanged release proven by an
+  authenticated previous catalog. It never excuses a new or changed artifact,
+  never replaces the public-host check, and never lets execute upload bytes it
+  has not verified.
 - Every non-withdrawn public `downloads.anon.inc` artifact URL must independently
   return HTTP 200 and the signed byte size/hash before activation. Requests are
   credential-free, 60-second bounded, and do not follow redirects or accept
