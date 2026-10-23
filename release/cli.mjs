@@ -9,7 +9,7 @@ import { packageWindows } from './windows.mjs';
 import { assertCatalog } from './catalog.mjs';
 import { checksumText, invariant, jsonBytes, loadVerifiedCatalog, parseArgs, required, verifyArtifacts, writeNew } from './lib.mjs';
 import { createPublicArtifactVerifier, createR2Transport, publishPlan, publishVerified } from './publish.mjs';
-import { prepareMetadataSigner, signMetadataBundle } from './metadata.mjs';
+import { prepareMetadataSigner, signMetadataBundle, trustedMetadataKeyPath } from './metadata.mjs';
 export { privateKeyOutsideRepositories } from './metadata.mjs';
 
 const help = `Anon release tooling (Node 22+, no npm dependencies)
@@ -39,10 +39,23 @@ catalog --release FILE --artifacts DIR --out FILE [--publish]
 withdraw --catalog FILE --signature FILE --public-key FILE --product PRODUCT
   --version VERSION --build-id ID --reason TEXT --out FILE
 sign --catalog FILE --artifacts DIR --private-key FILE [--public-key FILE] --out DIR
+  [--previous FILE --previous-signature FILE]
   Public key defaults to the pinned Anon release-metadata key, never a derived trust key.
 verify --catalog FILE --signature FILE --public-key FILE [--artifacts DIR] [--sums FILE]
+  [--previous FILE --previous-signature FILE]
 publish --catalog FILE --signature FILE --public-key FILE --artifacts DIR
+  [--previous FILE --previous-signature FILE]
   [--execute --account-id ID --bucket NAME --confirm-dedicated-bucket NAME]
+
+Every artifact needs a verified local copy under --artifacts, except unchanged history:
+with an earlier catalog that verifies under the trusted public key (--previous and its
+detached --previous-signature, authenticated by --public-key; for sign, the signing
+public key), a release whose artifacts, releasedAt and channel are identical in that
+catalog and not withdrawn here may omit its local copy. A copy that is present is still
+verified, and new or changed artifacts always need one. publish --execute never uploads
+such an artifact: it verifies the stored R2 object against the signed hash, refuses if
+it is absent, and still downloads every artifact from its public URL. Execute takes its
+history from the authenticated active remote catalog; a --previous must equal that.
 
 All output paths must be new. Nothing downloads, uploads, signs an app, or invokes
 Apple notarization unless the corresponding explicit execution option is supplied.
@@ -54,6 +67,16 @@ async function notesFrom(args) {
   invariant(Array.isArray(notes), '--notes must point to a JSON string array');
   return notes;
 }
+// An optional earlier catalog that must verify under the command's trusted public key (a path). Only an
+// authenticated catalog may excuse a missing local copy of a historical artifact.
+async function previousFrom(args, publicKey) {
+  if (!args.previous) { invariant(!args['previous-signature'], '--previous-signature requires --previous'); return undefined; }
+  const signature = required(args, 'previous-signature');
+  invariant(publicKey, 'Required: --public-key');
+  return loadVerifiedCatalog({ catalog: args.previous, signature, publicKey });
+}
+// Present only when some artifacts were excused from a local copy, so full-copy output is unchanged.
+const withoutLocalCopy = (verified) => { const count = verified.filter((entry) => entry.path === null).length; return count ? { artifactsWithoutLocalCopy: count } : {}; };
 export async function main(argv) {
   const [command, ...tail] = argv;
   if (!command || command === 'help' || command === '--help') { console.log(help); return; }
@@ -89,11 +112,12 @@ export async function main(argv) {
     const release = JSON.parse(await readFile(required(args, 'release'), 'utf8'));
     assertCatalog({ schemaVersion: 1, releases: [release] });
     invariant(release.status === 'unreleased', 'Only a newly inspected unreleased record may be added');
-    const base = args.previous ? (await loadVerifiedCatalog({ catalog: args.previous, signature: required(args, 'previous-signature'), publicKey: required(args, 'public-key') })).catalog : { schemaVersion: 1, releases: [] };
+    const previous = await previousFrom(args, args['public-key']);
+    const base = previous ? previous.catalog : { schemaVersion: 1, releases: [] };
     const catalog = assertCatalog({ ...base, releases: [...base.releases, { ...release, status: args.publish ? 'published' : 'unreleased' }] });
-    await verifyArtifacts(catalog, required(args, 'artifacts'));
+    const verified = await verifyArtifacts(catalog, required(args, 'artifacts'), { previous: previous?.catalog });
     await writeNew(required(args, 'out'), jsonBytes(catalog));
-    console.log(JSON.stringify({ candidateCreated: true, activated: false, releases: catalog.releases.length }));
+    console.log(JSON.stringify({ candidateCreated: true, activated: false, releases: catalog.releases.length, ...withoutLocalCopy(verified) }));
   } else if (command === 'withdraw') {
     const args = parseArgs(tail, { values: ['catalog', 'signature', 'public-key', 'product', 'version', 'build-id', 'reason', 'out'] });
     const loaded = await loadVerifiedCatalog({ catalog: required(args, 'catalog'), signature: required(args, 'signature'), publicKey: required(args, 'public-key') });
@@ -105,24 +129,31 @@ export async function main(argv) {
     await writeNew(required(args, 'out'), jsonBytes(loaded.catalog));
     console.log(JSON.stringify({ withdrawalCandidateCreated: true, activated: false }));
   } else if (command === 'sign') {
-    const args = parseArgs(tail, { values: ['catalog', 'artifacts', 'private-key', 'public-key', 'out'] });
+    const args = parseArgs(tail, { values: ['catalog', 'artifacts', 'private-key', 'public-key', 'out', 'previous', 'previous-signature'] });
     const bytes = await readFile(required(args, 'catalog'));
-    const signer = await prepareMetadataSigner({ privateKey: required(args, 'private-key'), publicKey: args['public-key'] });
-    console.log(JSON.stringify(await signMetadataBundle({ bytes, artifacts: required(args, 'artifacts'), out: required(args, 'out'), signer })));
+    const publicKey = args['public-key'] ?? trustedMetadataKeyPath;
+    const signer = await prepareMetadataSigner({ privateKey: required(args, 'private-key'), publicKey });
+    // The previous catalog is authenticated with the same trusted key that signs, inside signMetadataBundle.
+    const previous = await previousFrom(args, publicKey);
+    console.log(JSON.stringify(await signMetadataBundle({ bytes, artifacts: required(args, 'artifacts'), out: required(args, 'out'), signer, previous })));
   } else if (command === 'verify' || command === 'publish') {
-    const args = parseArgs(tail, { values: ['catalog', 'signature', 'public-key', 'artifacts', ...(command === 'verify' ? ['sums'] : ['account-id', 'bucket', 'confirm-dedicated-bucket'])], booleans: command === 'publish' ? ['execute'] : [] });
+    const args = parseArgs(tail, { values: ['catalog', 'signature', 'public-key', 'artifacts', 'previous', 'previous-signature', ...(command === 'verify' ? ['sums'] : ['account-id', 'bucket', 'confirm-dedicated-bucket'])], booleans: command === 'publish' ? ['execute'] : [] });
     const publicKeyPath = required(args, 'public-key');
-    const loaded = await loadVerifiedCatalog({ catalog: required(args, 'catalog'), signature: required(args, 'signature'), publicKey: publicKeyPath, artifacts: command === 'publish' ? required(args, 'artifacts') : args.artifacts });
+    invariant(command === 'publish' || !args.previous || args.artifacts, '--previous only applies together with --artifacts');
+    const previous = await previousFrom(args, publicKeyPath);
+    // Execute alone cannot yet know the history: the active remote catalog is authenticated inside publishVerified,
+    // which refuses any artifact lacking both a local copy and proof of being unchanged, before any upload.
+    const loaded = await loadVerifiedCatalog({ catalog: required(args, 'catalog'), signature: required(args, 'signature'), publicKey: publicKeyPath, artifacts: command === 'publish' ? required(args, 'artifacts') : args.artifacts, previous: previous?.catalog, deferMissing: !previous && !!args.execute });
     if (command === 'verify') {
       if (args.sums) invariant(await readFile(args.sums, 'utf8') === checksumText(loaded.catalog), 'SHA256SUMS does not match authenticated metadata');
-      console.log(JSON.stringify({ signatureVerified: true, schemaVerified: true, artifactHashesVerified: args.artifacts ? loaded.verified.length : null, offline: true, note: 'Artifact hashes authenticate the signed catalog. Platform installer/signature trust must also be checked on the target OS.' }));
+      console.log(JSON.stringify({ signatureVerified: true, schemaVerified: true, artifactHashesVerified: args.artifacts ? loaded.verified.filter((entry) => entry.path !== null).length : null, offline: true, note: 'Artifact hashes authenticate the signed catalog. Platform installer/signature trust must also be checked on the target OS.', ...withoutLocalCopy(loaded.verified) }));
     } else if (!args.execute) console.log(JSON.stringify(publishPlan(loaded), null, 2));
     else {
       invariant(loaded.catalog.releases.every((r) => r.channel === 'stable'), 'Live release publishing refuses test catalogs and fixture channels');
       const bucket = required(args, 'bucket');
       invariant(required(args, 'confirm-dedicated-bucket') === bucket, 'Confirm the dedicated release bucket name exactly');
       const transport = createR2Transport({ accountId: required(args, 'account-id'), bucket, accessKeyId: process.env.ANON_RELEASE_R2_ACCESS_KEY_ID, secretAccessKey: process.env.ANON_RELEASE_R2_SECRET_ACCESS_KEY });
-      console.log(JSON.stringify(await publishVerified({ ...loaded, publicKey: await readFile(publicKeyPath), sums: checksumText(loaded.catalog) }, transport, createPublicArtifactVerifier())));
+      console.log(JSON.stringify(await publishVerified({ ...loaded, publicKey: await readFile(publicKeyPath), sums: checksumText(loaded.catalog), previousCatalogBytes: previous?.bytes }, transport, createPublicArtifactVerifier())));
     }
   } else throw new Error('Unknown command. Run release/cli.mjs help.');
 }

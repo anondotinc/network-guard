@@ -1,6 +1,6 @@
 import { createHash, createHmac } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { artifactKey, fileInfo, invariant, jsonBytes, MAX_ARTIFACT_BYTES, sha256, verifyCatalogSignature } from './lib.mjs';
+import { artifactKey, fileInfo, invariant, jsonBytes, MAX_ARTIFACT_BYTES, releaseId, sha256, unchangedHistory, verifyCatalogSignature } from './lib.mjs';
 import { assertCatalogTransition } from './catalog.mjs';
 export { assertCatalogTransition } from './catalog.mjs';
 
@@ -146,24 +146,32 @@ export function createR2Transport({ accountId, bucket, accessKeyId, secretAccess
 export function publishPlan({ bytes, signatureBytes, catalog, verified }) {
   const digest = sha256(bytes);
   const prefix = `catalogs/${digest}`;
-  return { mode: 'dry-run', networkRequests: 0, credentialAccess: false, artifacts: verified.map(({ artifact, key }) => ({ key, bytes: artifact.bytes, sha256: artifact.sha256, operation: isGitHub(artifact.location) ? 'verify-existing-immutable-github-release-no-r2-artifact-upload' : 'conditional-create-then-download-and-hash', publicVerification: { location: artifact.location, operation: 'required-download-and-hash-before-activation', timeoutMs: 60_000, redirects: isGitHub(artifact.location) ? 'one-github-asset-cdn-redirect-only' : 'rejected' } })), metadata: [`${prefix}/catalog.json`, `${prefix}/catalog.json.sig`, `${prefix}/SHA256SUMS`], activation: { key: 'catalog/v1.json', operation: 'single atomic signed-envelope PUT after every R2 artifact, public download and metadata object verifies', existingCatalog: 'authenticated before compare-and-swap' }, catalogSha256: digest, signatureBytes: signatureBytes.length, publishedReleases: catalog.releases.filter((r) => r.status === 'published').length };
+  // An entry without a local copy is an unchanged historical release proven by an authenticated previous catalog.
+  const remote = verified.filter((entry) => entry.path === null).length;
+  const operation = (artifact, path) => path === null
+    ? (isGitHub(artifact.location) ? 'remote-verification-at-execute-no-local-copy-immutable-github-release-no-r2-artifact-upload' : 'remote-verification-at-execute-no-local-copy-download-and-hash-existing-r2-object-never-uploaded')
+    : (isGitHub(artifact.location) ? 'verify-existing-immutable-github-release-no-r2-artifact-upload' : 'conditional-create-then-download-and-hash');
+  return { mode: 'dry-run', networkRequests: 0, credentialAccess: false, artifacts: verified.map(({ artifact, key, path }) => ({ key, bytes: artifact.bytes, sha256: artifact.sha256, operation: operation(artifact, path), publicVerification: { location: artifact.location, operation: 'required-download-and-hash-before-activation', timeoutMs: 60_000, redirects: isGitHub(artifact.location) ? 'one-github-asset-cdn-redirect-only' : 'rejected' } })), metadata: [`${prefix}/catalog.json`, `${prefix}/catalog.json.sig`, `${prefix}/SHA256SUMS`], activation: { key: 'catalog/v1.json', operation: 'single atomic signed-envelope PUT after every R2 artifact, public download and metadata object verifies', existingCatalog: 'authenticated before compare-and-swap' }, catalogSha256: digest, signatureBytes: signatureBytes.length, publishedReleases: catalog.releases.filter((r) => r.status === 'published').length, ...(remote ? { artifactsWithoutLocalCopy: remote, historicalAuthority: 'execute requires --previous to be byte-identical to the authenticated active catalog, or uses that catalog when --previous is absent, and refuses any artifact it does not prove unchanged' } : {}) };
 }
 export async function readActiveCatalog(transport, publicKey) {
   const active = await transport.get('catalog/v1.json');
-  if (!active) return { active: null, catalog: { schemaVersion: 1, releases: [] } };
+  if (!active) return { active: null, catalog: { schemaVersion: 1, releases: [] }, bytes: null };
   invariant(active.etag && /^"[^"\r\n]+"$/.test(active.etag), 'Active catalog has no usable ETag');
   const envelope = JSON.parse(active.bytes);
   invariant(envelope.schemaVersion === 1 && Object.keys(envelope).sort().join(',') === 'catalogBase64,schemaVersion,signatureBase64', 'Invalid active catalog envelope');
   invariant(typeof envelope.catalogBase64 === 'string' && typeof envelope.signatureBase64 === 'string', 'Invalid active catalog encoding');
-  const catalog = verifyCatalogSignature(Buffer.from(envelope.catalogBase64, 'base64'), Buffer.from(envelope.signatureBase64, 'base64'), publicKey);
-  return { active, catalog };
+  const bytes = Buffer.from(envelope.catalogBase64, 'base64');
+  const catalog = verifyCatalogSignature(bytes, Buffer.from(envelope.signatureBase64, 'base64'), publicKey);
+  return { active, catalog, bytes };
 }
-export async function publishVerified({ bytes, signatureBytes, catalog, verified, publicKey, sums }, transport, verifyPublicArtifact) {
+export async function publishVerified({ bytes, signatureBytes, catalog, verified, publicKey, sums, previousCatalogBytes }, transport, verifyPublicArtifact) {
   invariant(transport, 'An explicit transport is required');
   invariant(typeof verifyPublicArtifact === 'function', 'An explicit public download verifier is required before any release operation');
   // Authenticate active history before any mutation. No existing catalog is also a valid first release.
-  const { active, catalog: prior } = await readActiveCatalog(transport, publicKey);
+  const { active, catalog: prior, bytes: priorBytes } = await readActiveCatalog(transport, publicKey);
   assertCatalogTransition(prior, catalog);
+  // An operator-supplied --previous is only a cross-check: the authenticated active catalog is the history.
+  if (previousCatalogBytes) invariant(priorBytes?.equals(previousCatalogBytes), '--previous must be byte-identical to the authenticated active catalog; catalog not activated');
   async function immutable(key, data, expected) {
     const exists = await transport.head(key);
     if (exists) invariant(exists.bytes === expected.bytes, 'Immutable version already exists with different bytes; choose a new version/build');
@@ -171,7 +179,33 @@ export async function publishVerified({ bytes, signatureBytes, catalog, verified
     // A matching ETag or stored checksum is not enough: read actual uploaded bytes.
     await transport.verify(key, expected);
   }
+  // Every signed artifact needs a verified local copy or proof that it is an unchanged historical release.
+  // This runs before any upload; the signed catalog, not the caller's list, decides what is expected.
+  const unchanged = unchangedHistory(prior, catalog);
+  const entries = new Map(verified.map((entry) => [entry.key, entry]));
+  const remoteOnly = [];
+  for (const release of catalog.releases) {
+    if (release.status === 'withdrawn') continue;
+    for (const artifact of release.artifacts) {
+      const key = artifactKey(artifact, release);
+      const entry = entries.get(key);
+      invariant(entry, `Artifact ${key} was not verified; catalog not activated`);
+      if (entry.path !== null) continue;
+      invariant(unchanged.has(releaseId(release)), `Artifact ${key} has no local copy and is not an unchanged release in the authenticated active catalog; catalog not activated`);
+      remoteOnly.push({ key, artifact });
+    }
+  }
+  // Historical R2 objects are never uploaded without a local copy: read the stored bytes and compare them
+  // with the signed size and SHA-256. A missing object stops the release before anything is written.
+  for (const { key, artifact } of remoteOnly) {
+    if (isGitHub(artifact.location)) continue; // Immutable-release checks and the public download below cover it.
+    const exists = await transport.head(key);
+    invariant(exists, `Historical artifact ${key} is not in the release bucket and has no local copy; supply the verified local copy and rerun; catalog not activated`);
+    invariant(exists.bytes === artifact.bytes, `Historical artifact ${key} in the release bucket differs from the signed catalog; catalog not activated`);
+    await transport.verify(key, { bytes: artifact.bytes, sha256: artifact.sha256 });
+  }
   for (const entry of verified) {
+    if (entry.path === null) continue;
     const latest = await fileInfo(entry.path);
     invariant(latest.sha256 === entry.artifact.sha256 && latest.bytes === entry.artifact.bytes, 'Local artifact changed after validation');
     if (!isGitHub(entry.artifact.location)) await immutable(entry.key, { file: entry.path, payloadHash: latest.sha256, length: latest.bytes }, latest);
