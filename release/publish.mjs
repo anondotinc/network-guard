@@ -23,7 +23,7 @@ export function createPublicArtifactVerifier(fetchImpl = fetch) {
     invariant(Number.isSafeInteger(expected?.bytes) && expected.bytes > 0 && expected.bytes <= MAX_ARTIFACT_BYTES && /^[0-9a-f]{64}$/.test(expected.sha256), 'Invalid expected public artifact size or digest');
     let response;
     let finalLocation = location;
-    const signal = AbortSignal.timeout(60_000);
+    const signal = AbortSignal.timeout(requestTimeoutMs(expected.bytes));
     const request = { method: 'GET', redirect: 'manual', credentials: 'omit', referrerPolicy: 'no-referrer', cache: 'no-store',
       headers: { accept: 'application/octet-stream', 'accept-encoding': 'identity' }, signal };
     try {
@@ -80,13 +80,24 @@ export function createPublicArtifactVerifier(fetchImpl = fetch) {
   };
 }
 
+/**
+ * How long one request may take: 60 s, plus one second per 256 KiB of the body it
+ * carries (an upload) or is expected to return (a verification download), so a
+ * release-sized artifact is not cut off on a slow link while a stalled request
+ * still fails. ANON_RELEASE_REQUEST_TIMEOUT_MS raises the floor for one run.
+ */
+export function requestTimeoutMs(bodyBytes = 0) {
+  const floor = Math.max(60_000, Number(process.env.ANON_RELEASE_REQUEST_TIMEOUT_MS) || 0);
+  return floor + Math.ceil(Math.max(0, bodyBytes) / 262_144) * 1_000;
+}
+
 /** Minimal fixed-endpoint R2 S3 transport. No account/list/delete/provision operation exists. */
 export function createR2Transport({ accountId, bucket, accessKeyId, secretAccessKey }, fetchImpl = fetch) {
   invariant(/^[0-9a-f]{32}$/.test(accountId ?? ''), 'R2 account ID must contain 32 lowercase hex characters');
   invariant(/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(bucket ?? ''), 'Invalid dedicated release bucket name');
   invariant(accessKeyId && secretAccessKey, 'Dedicated R2 release credentials are required for --execute');
   const endpoint = `https://${accountId}.r2.cloudflarestorage.com`;
-  async function request(method, key, { bytes, file, payloadHash = sha256(Buffer.alloc(0)), length, condition, contentType = 'application/octet-stream' } = {}) {
+  async function request(method, key, { bytes, file, payloadHash = sha256(Buffer.alloc(0)), length, condition, contentType = 'application/octet-stream', expectedBytes = 0 } = {}) {
     invariant(safeKey(key), 'Unsafe storage key');
     const pathname = `/${encode(bucket)}/${key.split('/').map(encode).join('/')}`;
     const now = new Date().toISOString().replace(/[:-]|\.\d{3}/g, '');
@@ -110,7 +121,7 @@ export function createR2Transport({ accountId, bucket, accessKeyId, secretAccess
       // Unsigned transport-only header: a compressed response carries a weak
       // ETag, which cannot serve as a compare-and-swap validator on activation.
       const wire = method === 'PUT' ? headers : { ...headers, 'accept-encoding': 'identity' };
-      response = await fetchImpl(`${endpoint}${pathname}`, { method, headers: wire, ...(method === 'PUT' ? { body: file ? createReadStream(file) : bytes, duplex: 'half' } : {}), redirect: 'manual', signal: AbortSignal.timeout(60_000) });
+      response = await fetchImpl(`${endpoint}${pathname}`, { method, headers: wire, ...(method === 'PUT' ? { body: file ? createReadStream(file) : bytes, duplex: 'half' } : {}), redirect: 'manual', signal: AbortSignal.timeout(requestTimeoutMs(method === 'PUT' ? (length ?? bytes?.length ?? 0) : expectedBytes)) });
     } catch { throw new Error('R2 request failed or timed out; activation was not confirmed. Inspect with a fresh dry run before retrying.'); }
     return response;
   }
@@ -130,7 +141,7 @@ export function createR2Transport({ accountId, bucket, accessKeyId, secretAccess
       return { bytes: Number(response.headers.get('content-length')), etag: response.headers.get('etag') };
     },
     async verify(key, expected) {
-      const response = await request('GET', key);
+      const response = await request('GET', key, { expectedBytes: expected.bytes });
       invariant(response.ok, `R2 verification read failed (HTTP ${response.status})`);
       const hash = createHash('sha256'); let size = 0;
       for await (const part of response.body) { size += part.length; invariant(size <= expected.bytes, 'Remote artifact is larger than expected'); hash.update(part); }
