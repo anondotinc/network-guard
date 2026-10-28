@@ -9,7 +9,7 @@ import { validateCatalog, assertCatalog } from '../catalog.mjs';
 import { importApk, inspectApkOutput } from '../android.mjs';
 import { inspectAppleSignature, packageHelper, verifyUniversalAppleSignatures } from '../helper.mjs';
 import { artifactKey, checksumText, jsonBytes, parseArgs, sha256, signCatalog, verifyArtifacts, verifyCatalogSignature } from '../lib.mjs';
-import { assertCatalogTransition, createPublicArtifactVerifier, createR2Transport, publishPlan, publishVerified as publishWithRequiredPublicGate } from '../publish.mjs';
+import { assertCatalogTransition, createPublicArtifactVerifier, createR2Transport, publishPlan, publishVerified as publishWithRequiredPublicGate, requestTimeoutMs } from '../publish.mjs';
 import { badging, fixtureCatalog, signedFixture, testArtifact, TEST_SIGNER, verification } from './fixtures.mjs';
 import { fixturePublicVerifier, memoryTransport } from './memory-transport.mjs';
 
@@ -218,7 +218,8 @@ test('dry-run plan has no network or credential operations', async (t) => {
   assert.equal(plan.artifacts[0].key, artifactKey(s.catalog.releases[0].artifacts[0]));
   assert.equal(plan.artifacts[0].publicVerification.location, s.catalog.releases[0].artifacts[0].location);
   assert.equal(plan.artifacts[0].publicVerification.redirects, 'rejected');
-  assert.equal(plan.artifacts[0].publicVerification.timeoutMs, 60_000);
+  assert.equal(plan.artifacts[0].publicVerification.timeoutMs, requestTimeoutMs(plan.artifacts[0].bytes));
+  assert.ok(plan.artifacts[0].publicVerification.timeoutMs >= 60_000);
 });
 test('publish requires a public verifier before any storage request', async (t) => {
   const s = await staged(t); const transport = memoryTransport();
